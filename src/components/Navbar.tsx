@@ -1,5 +1,6 @@
 import { Terminal, Moon, Sun, Menu, X } from "lucide-react";
 import { useState } from "react";
+import { useNavigate } from "react-router-dom";
 
 interface NavbarProps {
   isDark: boolean;
@@ -8,7 +9,7 @@ interface NavbarProps {
 
 const Navbar = ({ isDark, toggleTheme }: NavbarProps) => {
   const [mobileOpen, setMobileOpen] = useState(false);
-
+const navigate = useNavigate();
   return (
     <nav className="fixed top-0 left-0 right-0 z-50 border-b border-border bg-background/80 backdrop-blur-xl">
       <div className="container mx-auto flex items-center justify-between px-6 py-4">
@@ -16,7 +17,7 @@ const Navbar = ({ isDark, toggleTheme }: NavbarProps) => {
           <Terminal className="h-6 w-6 text-primary" />
           <span className="font-mono text-lg font-bold text-foreground">
             <span className="text-primary">{'<'}</span>
-            CodeForge
+            Judge-Compilo
             <span className="text-primary">{'/>'}</span>
           </span>
         </div>
@@ -37,7 +38,7 @@ const Navbar = ({ isDark, toggleTheme }: NavbarProps) => {
           >
             {isDark ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
           </button>
-          <button className="font-mono text-sm bg-primary text-primary-foreground px-4 py-2 rounded-md hover:opacity-90 transition-opacity">
+          <button className="font-mono text-sm bg-primary text-primary-foreground  px-4 py-2 rounded-md hover:opacity-90 transition-opacity"  onClick={() => navigate("/login")} >
             $ login
           </button>
         </div>
