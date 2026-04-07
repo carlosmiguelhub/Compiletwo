@@ -26,7 +26,6 @@ const languages: { label: string; value: CompilerLanguage }[] = [
 
 export default function Topbar({
   language,
-  activeFileName,
   onLanguageChange,
   onSave,
   onRun,
