@@ -4,23 +4,17 @@ import {
   signInWithPopup,
   signOut,
   updateProfile,
+  reload,
 } from "firebase/auth";
-import { doc, getDoc, serverTimestamp, setDoc } from "firebase/firestore";
+import {
+  doc,
+  getDoc,
+  serverTimestamp,
+  setDoc,
+  updateDoc,
+} from "firebase/firestore";
 import { auth, db, googleProvider } from "./config";
 
-/**
- * registerUser
- *
- * Purpose:
- * Creates a Firebase Auth account using email and password,
- * then updates the user's display name.
- *
- * Important:
- * This function returns the full userCredential so the calling page
- * can decide what to do next, such as:
- * - send email verification
- * - create Firestore profile
- */
 export const registerUser = async (
   username: string,
   email: string,
@@ -39,27 +33,23 @@ export const registerUser = async (
   return userCredential;
 };
 
-/**
- * loginUser
- *
- * Purpose:
- * Signs in an existing user with email and password.
- */
 export const loginUser = async (email: string, password: string) => {
   const userCredential = await signInWithEmailAndPassword(auth, email, password);
   return userCredential.user;
 };
 
-/**
- * loginWithGoogle
- *
- * Purpose:
- * Signs in the user with Google.
- * If this is their first time, create a Firestore profile document.
- */
 export const loginWithGoogle = async () => {
   const result = await signInWithPopup(auth, googleProvider);
   const user = result.user;
+
+  await reload(user);
+
+  const googleProviderData = result.user.providerData.find(
+    (provider) => provider.providerId === "google.com"
+  );
+
+  const googlePhoto = googleProviderData?.photoURL || user.photoURL || "";
+  const googleDisplayName = googleProviderData?.displayName || user.displayName || "";
 
   const userRef = doc(db, "users", user.uid);
   const existingUser = await getDoc(userRef);
@@ -67,24 +57,26 @@ export const loginWithGoogle = async () => {
   if (!existingUser.exists()) {
     await setDoc(userRef, {
       uid: user.uid,
-      displayName: user.displayName || "",
+      displayName: googleDisplayName,
       email: user.email || "",
+      photoURL: googlePhoto,
       provider: "google",
-      role: "user", // Default role for new Google users
+      role: "user",
       emailVerified: user.emailVerified,
       createdAt: serverTimestamp(),
+    });
+  } else {
+    await updateDoc(userRef, {
+      displayName: googleDisplayName,
+      email: user.email || "",
+      photoURL: googlePhoto,
+      emailVerified: user.emailVerified,
     });
   }
 
   return user;
 };
 
-/**
- * logoutUser
- *
- * Purpose:
- * Signs out the current user.
- */
 export const logoutUser = async () => {
   await signOut(auth);
 };

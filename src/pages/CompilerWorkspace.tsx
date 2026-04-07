@@ -5,6 +5,7 @@ import EditorTabs from "../components/compiler/EditorTabs";
 import EditorPanel from "../components/compiler/EditorPanel";
 import BottomPanel from "../components/compiler/BottomPanel";
 import { useNavigate } from "react-router-dom";
+import { onAuthStateChanged, type User as FirebaseUser } from "firebase/auth";
 import { auth } from "../firebase/config";
 
 export type CompilerLanguage =
@@ -320,6 +321,26 @@ export default function CompilerWorkspace() {
   const [desktopTerminalCollapsed, setDesktopTerminalCollapsed] = useState(false);
   const [terminalHeight, setTerminalHeight] = useState(220);
   const [explorerCollapsed, setExplorerCollapsed] = useState(false);
+  const [sidebarPhotoURL, setSidebarPhotoURL] = useState<string | null>(null);
+
+  // for google profile
+  useEffect(() => {
+  const unsubscribe = onAuthStateChanged(auth, (currentUser: FirebaseUser | null) => {
+    if (!currentUser) {
+      setSidebarPhotoURL(null);
+      return;
+    }
+
+    const googlePhoto =
+      currentUser.providerData.find(
+        (provider) => provider.providerId === "google.com"
+      )?.photoURL || null;
+
+    setSidebarPhotoURL(googlePhoto || currentUser.photoURL || null);
+  });
+
+  return () => unsubscribe();
+}, []);
 
   const [language, setLanguage] = useState<CompilerLanguage>("java");
   const [projectTree, setProjectTree] = useState<ExplorerNode[]>([
@@ -668,7 +689,7 @@ export default function CompilerWorkspace() {
   return (
     <>
       <div className="flex h-screen w-full overflow-hidden bg-background text-foreground">
-       <FileExplorer
+   <FileExplorer
   tree={projectTree}
   selectedFolderId={selectedFolderId}
   activeFileId={activeFileId}
@@ -683,7 +704,7 @@ export default function CompilerWorkspace() {
   onRenameNode={openRenameDialog}
   onDeleteNode={openDeleteDialog}
   onProfileClick={() => navigate("/profile")}
-  userPhotoURL={auth.currentUser?.photoURL}
+  userPhotoURL={sidebarPhotoURL}
 />
 
         <div className="flex min-w-0 flex-1 flex-col">

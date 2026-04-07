@@ -253,9 +253,10 @@ export default function FileExplorer({
               >
                 {userPhotoURL ? (
                   <img
-                    src={userPhotoURL}
-                    alt="Profile"
-                    className="h-full w-full object-cover"
+                src={userPhotoURL}
+                alt="Profile"
+                referrerPolicy="no-referrer"
+                className="h-full w-full object-cover"
                   />
                 ) : (
                   <UserCircle2 className="h-5 w-5 text-muted-foreground" />

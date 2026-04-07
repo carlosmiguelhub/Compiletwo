@@ -70,7 +70,7 @@ export default function Topbar({
 
           <div className="min-w-0">
             <p className="truncate font-mono ">
-              Judge-Compilo Workspace
+              Code Workspace
             </p>
             {/* <h1 className="truncate font-mono text-base font-semibold">
               {activeFileName}
