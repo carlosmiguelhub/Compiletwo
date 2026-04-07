@@ -115,7 +115,7 @@ const CompilerSection = () => {
           </div>
 
           {/* Code area */}
-          <pre className="p-4 font-mono text-sm leading-relaxed overflow-x-auto min-h-[200px] bg-surface-code">
+          <pre className="p-4 font-mono text-sm leading-relaxed overflow-x-auto min-h-[200px] bg-surface-code oveflow-x: auto">
             <code className="text-foreground">{DEFAULT_CODE[lang]}</code>
           </pre>
 

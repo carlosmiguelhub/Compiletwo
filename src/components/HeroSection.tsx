@@ -6,7 +6,7 @@ const HeroSection = () => {
     <section className="relative min-h-screen flex items-center justify-center overflow-hidden pt-20">
       {/* Background image - only visible in dark mode */}
       <div
-        className="absolute inset-0 hidden dark:block opacity-30"
+        className="absolute inset-0 opacity-50"
         style={{ backgroundImage: `url(${heroBg})`, backgroundSize: "cover", backgroundPosition: "center" }}
       />
       <div className="absolute inset-0 bg-gradient-to-b from-background/60 via-background/80 to-background" />
@@ -20,7 +20,7 @@ const HeroSection = () => {
         {/* Terminal-style intro */}
         <div className="inline-block mb-8">
           <div className="bg-surface-code border border-border rounded-lg px-4 py-2 font-mono text-sm text-muted-foreground">
-            <span className="text-primary">$</span> welcome --to <span className="text-cyber">codeforge</span>
+            <span className="text-primary">$</span> welcome --to <span className="text-cyber">Judge-Compilo</span>
             <span className="inline-block w-2 h-4 bg-primary ml-1 animate-blink" />
           </div>
         </div>
