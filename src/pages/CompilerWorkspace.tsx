@@ -4,6 +4,8 @@ import FileExplorer from "../components/compiler/FileExplorer";
 import EditorTabs from "../components/compiler/EditorTabs";
 import EditorPanel from "../components/compiler/EditorPanel";
 import BottomPanel from "../components/compiler/BottomPanel";
+import { useNavigate } from "react-router-dom";
+import { auth } from "../firebase/config";
 
 export type CompilerLanguage =
   | "javascript"
@@ -312,7 +314,13 @@ function formatLanguageLabel(language: CompilerLanguage) {
 }
 
 export default function CompilerWorkspace() {
-    const [terminalOpen, setTerminalOpen] = useState(false);
+  const navigate = useNavigate();
+
+  const [terminalOpen, setTerminalOpen] = useState(false);
+  const [desktopTerminalCollapsed, setDesktopTerminalCollapsed] = useState(false);
+  const [terminalHeight, setTerminalHeight] = useState(220);
+  const [explorerCollapsed, setExplorerCollapsed] = useState(false);
+
   const [language, setLanguage] = useState<CompilerLanguage>("java");
   const [projectTree, setProjectTree] = useState<ExplorerNode[]>([
     {
@@ -367,6 +375,40 @@ export default function CompilerWorkspace() {
       setSelectedFolderId(getFirstFolderId(projectTree));
     }
   }, [projectTree, selectedFolderId]);
+
+  useEffect(() => {
+    const handleMouseMove = (event: MouseEvent) => {
+      const minHeight = 140;
+      const maxHeight = Math.floor(window.innerHeight * 0.6);
+      const nextHeight = window.innerHeight - event.clientY;
+
+      setTerminalHeight(Math.min(Math.max(nextHeight, minHeight), maxHeight));
+    };
+
+    const handleMouseUp = () => {
+      document.body.style.cursor = "";
+      document.body.style.userSelect = "";
+      window.removeEventListener("mousemove", handleMouseMove);
+      window.removeEventListener("mouseup", handleMouseUp);
+    };
+
+    const startResize = () => {
+      document.body.style.cursor = "row-resize";
+      document.body.style.userSelect = "none";
+      window.addEventListener("mousemove", handleMouseMove);
+      window.addEventListener("mouseup", handleMouseUp);
+    };
+
+    (window as Window & { startTerminalResize?: () => void }).startTerminalResize =
+      startResize;
+
+    return () => {
+      window.removeEventListener("mousemove", handleMouseMove);
+      window.removeEventListener("mouseup", handleMouseUp);
+      delete (window as Window & { startTerminalResize?: () => void })
+        .startTerminalResize;
+    };
+  }, []);
 
   const appendLog = (message: string) => {
     setOutput((prev) => [...prev, message]);
@@ -598,6 +640,13 @@ export default function CompilerWorkspace() {
     }
   };
 
+  const handleTerminalResizeStart = () => {
+    if (desktopTerminalCollapsed) return;
+    const resizeFn = (window as Window & { startTerminalResize?: () => void })
+      .startTerminalResize;
+    resizeFn?.();
+  };
+
   const dialogTitle =
     dialogMode === "create-folder"
       ? "Create Folder"
@@ -619,19 +668,23 @@ export default function CompilerWorkspace() {
   return (
     <>
       <div className="flex h-screen w-full overflow-hidden bg-background text-foreground">
-        <FileExplorer
-          tree={projectTree}
-          selectedFolderId={selectedFolderId}
-          activeFileId={activeFileId}
-          mobileOpen={mobileExplorerOpen}
-          onCloseMobile={() => setMobileExplorerOpen(false)}
-          onSelectFolder={setSelectedFolderId}
-          onOpenFile={handleOpenFile}
-          onCreateFolder={openCreateFolderDialog}
-          onCreateFile={openCreateFileDialog}
-          onRenameNode={openRenameDialog}
-          onDeleteNode={openDeleteDialog}
-        />
+       <FileExplorer
+  tree={projectTree}
+  selectedFolderId={selectedFolderId}
+  activeFileId={activeFileId}
+  mobileOpen={mobileExplorerOpen}
+  collapsed={explorerCollapsed}
+  onCloseMobile={() => setMobileExplorerOpen(false)}
+  onToggleCollapse={() => setExplorerCollapsed((prev) => !prev)}
+  onSelectFolder={setSelectedFolderId}
+  onOpenFile={handleOpenFile}
+  onCreateFolder={openCreateFolderDialog}
+  onCreateFile={openCreateFileDialog}
+  onRenameNode={openRenameDialog}
+  onDeleteNode={openDeleteDialog}
+  onProfileClick={() => navigate("/profile")}
+  userPhotoURL={auth.currentUser?.photoURL}
+/>
 
         <div className="flex min-w-0 flex-1 flex-col">
           <Topbar
@@ -689,23 +742,30 @@ export default function CompilerWorkspace() {
               </div>
             </div>
           )}
-<div className="lg:hidden border-t border-border bg-card/80 px-3 py-2">
-  <button
-    onClick={() => setTerminalOpen((prev) => !prev)}
-    className="w-full rounded-xl border border-border bg-background px-4 py-2 font-mono text-sm transition hover:border-primary hover:text-primary"
-  >
-    {terminalOpen ? "Hide Terminal" : "Show Terminal"}
-  </button>
-</div>
 
-<div className={`${terminalOpen ? "block" : "hidden"} lg:block`}>
-  <BottomPanel
-    activeTab={bottomTab}
-    output={output}
-    problems={problems}
-    onChangeTab={setBottomTab}
-  />
-</div>
+          <div className="border-t border-border bg-card/80 px-3 py-2 lg:hidden">
+            <button
+              onClick={() => setTerminalOpen((prev) => !prev)}
+              className="w-full rounded-xl border border-border bg-background px-4 py-2 font-mono text-sm transition hover:border-primary hover:text-primary"
+            >
+              {terminalOpen ? "Hide Terminal" : "Show Terminal"}
+            </button>
+          </div>
+
+          <div className={`${terminalOpen ? "block" : "hidden"} lg:block`}>
+            <BottomPanel
+              activeTab={bottomTab}
+              output={output}
+              problems={problems}
+              onChangeTab={setBottomTab}
+              collapsed={desktopTerminalCollapsed}
+              height={terminalHeight}
+              onResizeStart={handleTerminalResizeStart}
+              onToggleCollapse={() =>
+                setDesktopTerminalCollapsed((prev) => !prev)
+              }
+            />
+          </div>
         </div>
       </div>
 

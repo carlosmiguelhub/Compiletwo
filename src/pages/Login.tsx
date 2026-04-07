@@ -1,7 +1,8 @@
-// src/pages/Login.tsx
 import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
+import { sendPasswordResetEmail } from "firebase/auth";
 import { loginUser, loginWithGoogle, logoutUser } from "../firebase/auth";
+import { auth } from "../firebase/config";
 import { getUserProfile } from "../lib/userService";
 
 type LoginForm = {
@@ -18,8 +19,10 @@ export default function Login() {
   });
 
   const [error, setError] = useState("");
+  const [message, setMessage] = useState("");
   const [loading, setLoading] = useState(false);
   const [googleLoading, setGoogleLoading] = useState(false);
+  const [resetLoading, setResetLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
 
   /**
@@ -68,6 +71,45 @@ export default function Login() {
   };
 
   /**
+   * Handles forgot password email sending.
+   */
+  const handleForgotPassword = async () => {
+    setError("");
+    setMessage("");
+
+    if (!form.email.trim()) {
+      setError("Please enter your email first.");
+      return;
+    }
+
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(form.email)) {
+      setError("Please enter a valid email address.");
+      return;
+    }
+
+    try {
+      setResetLoading(true);
+
+      await sendPasswordResetEmail(auth, form.email);
+
+      setMessage("Password reset email sent. Please check your inbox.");
+    } catch (error: any) {
+      if (error.code === "auth/user-not-found") {
+        setError("No account found with that email.");
+      } else if (error.code === "auth/invalid-email") {
+        setError("Please enter a valid email address.");
+      } else if (error.code === "auth/too-many-requests") {
+        setError("Too many attempts. Please try again later.");
+      } else {
+        setError("Failed to send password reset email.");
+      }
+    } finally {
+      setResetLoading(false);
+    }
+  };
+
+  /**
    * Handles email/password login.
    */
   const handleSubmit = async (e: React.FormEvent) => {
@@ -75,6 +117,7 @@ export default function Login() {
 
     const validationError = validate();
     setError(validationError);
+    setMessage("");
 
     if (validationError) return;
 
@@ -117,6 +160,7 @@ export default function Login() {
   const handleGoogleLogin = async () => {
     try {
       setError("");
+      setMessage("");
       setGoogleLoading(true);
 
       const user = await loginWithGoogle();
@@ -237,9 +281,20 @@ export default function Login() {
                 </div>
 
                 <div>
-                  <label className="mb-2 block font-mono text-sm text-gray-300">
-                    Password
-                  </label>
+                  <div className="mb-2 flex items-center justify-between">
+                    <label className="block font-mono text-sm text-gray-300">
+                      Password
+                    </label>
+
+                    <button
+                      type="button"
+                      onClick={handleForgotPassword}
+                      disabled={resetLoading}
+                      className="text-xs font-medium text-pink-400 hover:text-pink-300 disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      {resetLoading ? "Sending..." : "Forgot password?"}
+                    </button>
+                  </div>
 
                   <div className="relative">
                     <input
@@ -264,6 +319,12 @@ export default function Login() {
                 {error && (
                   <div className="rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-300">
                     {error}
+                  </div>
+                )}
+
+                {message && (
+                  <div className="rounded-xl border border-pink-500/30 bg-pink-500/10 px-4 py-3 text-sm text-pink-200">
+                    {message}
                   </div>
                 )}
 
