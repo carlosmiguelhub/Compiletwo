@@ -7,6 +7,8 @@ import BottomPanel from "../components/compiler/BottomPanel";
 import { useNavigate } from "react-router-dom";
 import { onAuthStateChanged, type User as FirebaseUser } from "firebase/auth";
 import { auth } from "../firebase/config";
+import { runCode } from "../lib/judge0Service";
+import { loadWorkspace, saveWorkspace } from "../lib/workspaceService";
 
 export type CompilerLanguage =
   | "javascript"
@@ -55,6 +57,10 @@ const languageOptions: CompilerLanguage[] = [
   "html",
 ];
 
+/**
+ * Default starter code per language.
+ * This is used when creating a new file.
+ */
 const starterContent: Record<CompilerLanguage, string> = {
   javascript: `function greet() {
   console.log("Hello from Judge-Compilo");
@@ -120,6 +126,9 @@ class Program
 `,
 };
 
+/**
+ * Creates a file node with starter content.
+ */
 function createFile(
   id: string,
   name: string,
@@ -134,6 +143,48 @@ function createFile(
   };
 }
 
+/**
+ * Creates the default project tree for new users
+ * or users with no saved workspace yet.
+ */
+function createDefaultProjectTree(): ExplorerNode[] {
+  return [
+    {
+      id: "folder-1",
+      name: "my-project",
+      type: "folder",
+      children: [
+        createFile("file-1", "main.js", "javascript"),
+        createFile("file-2", "utils.py", "python"),
+        createFile("file-3", "app.java", "java"),
+        createFile("file-4", "query.sql", "sql"),
+      ],
+    },
+    {
+      id: "folder-2",
+      name: "snippets",
+      type: "folder",
+      children: [createFile("file-5", "index.html", "html")],
+    },
+  ];
+}
+
+/**
+ * Returns a complete default workspace state.
+ * Used the first time a user's cloud workspace is created.
+ */
+function createDefaultWorkspace() {
+  return {
+    tree: createDefaultProjectTree(),
+    openFileIds: ["file-3"],
+    activeFileId: "file-3",
+    selectedFolderId: "folder-1",
+  };
+}
+
+/**
+ * Searches the whole tree and returns a file by id.
+ */
 function findFileById(nodes: ExplorerNode[], fileId: string): ExplorerFile | null {
   for (const node of nodes) {
     if (node.type === "file" && node.id === fileId) return node;
@@ -145,6 +196,9 @@ function findFileById(nodes: ExplorerNode[], fileId: string): ExplorerFile | nul
   return null;
 }
 
+/**
+ * Searches the whole tree and returns any node by id.
+ */
 function findNodeById(nodes: ExplorerNode[], nodeId: string): ExplorerNode | null {
   for (const node of nodes) {
     if (node.id === nodeId) return node;
@@ -156,6 +210,10 @@ function findNodeById(nodes: ExplorerNode[], nodeId: string): ExplorerNode | nul
   return null;
 }
 
+/**
+ * Checks whether a folder still exists.
+ * Useful after delete operations.
+ */
 function folderExists(nodes: ExplorerNode[], folderId: string): boolean {
   return nodes.some((node) => {
     if (node.type === "folder" && node.id === folderId) return true;
@@ -163,6 +221,9 @@ function folderExists(nodes: ExplorerNode[], folderId: string): boolean {
   });
 }
 
+/**
+ * Updates a file's code content inside the tree.
+ */
 function updateFileContent(
   nodes: ExplorerNode[],
   fileId: string,
@@ -184,6 +245,9 @@ function updateFileContent(
   });
 }
 
+/**
+ * Updates a file's language inside the tree.
+ */
 function updateFileLanguage(
   nodes: ExplorerNode[],
   fileId: string,
@@ -205,6 +269,9 @@ function updateFileLanguage(
   });
 }
 
+/**
+ * Adds a new node inside a selected folder.
+ */
 function addNodeToFolder(
   nodes: ExplorerNode[],
   folderId: string,
@@ -226,6 +293,9 @@ function addNodeToFolder(
   });
 }
 
+/**
+ * Renames any node by id.
+ */
 function renameNodeById(
   nodes: ExplorerNode[],
   nodeId: string,
@@ -247,6 +317,9 @@ function renameNodeById(
   });
 }
 
+/**
+ * Deletes a node by id from anywhere in the tree.
+ */
 function deleteNodeById(nodes: ExplorerNode[], nodeId: string): ExplorerNode[] {
   return nodes
     .filter((node) => node.id !== nodeId)
@@ -261,6 +334,10 @@ function deleteNodeById(nodes: ExplorerNode[], nodeId: string): ExplorerNode[] {
     });
 }
 
+/**
+ * Collects all file nodes from the tree.
+ * Used for open tabs rendering.
+ */
 function collectAllFiles(nodes: ExplorerNode[]): ExplorerFile[] {
   const files: ExplorerFile[] = [];
 
@@ -275,11 +352,18 @@ function collectAllFiles(nodes: ExplorerNode[]): ExplorerFile[] {
   return files;
 }
 
+/**
+ * Collects all file ids under a node.
+ * Useful when deleting folders and closing tabs inside them.
+ */
 function collectFileIdsFromNode(node: ExplorerNode): string[] {
   if (node.type === "file") return [node.id];
   return node.children.flatMap((child) => collectFileIdsFromNode(child));
 }
 
+/**
+ * Returns the first folder id found in the tree.
+ */
 function getFirstFolderId(nodes: ExplorerNode[]): string {
   for (const node of nodes) {
     if (node.type === "folder") return node.id;
@@ -287,6 +371,9 @@ function getFirstFolderId(nodes: ExplorerNode[]): string {
   return "";
 }
 
+/**
+ * Returns the first file found anywhere in the tree.
+ */
 function getFirstFile(nodes: ExplorerNode[]): ExplorerFile | null {
   for (const node of nodes) {
     if (node.type === "file") return node;
@@ -298,6 +385,9 @@ function getFirstFile(nodes: ExplorerNode[]): ExplorerFile | null {
   return null;
 }
 
+/**
+ * Converts internal language keys to UI labels.
+ */
 function formatLanguageLabel(language: CompilerLanguage) {
   const map: Record<CompilerLanguage, string> = {
     javascript: "JavaScript",
@@ -317,61 +407,56 @@ function formatLanguageLabel(language: CompilerLanguage) {
 export default function CompilerWorkspace() {
   const navigate = useNavigate();
 
+  /**
+   * Default workspace used before Firestore finishes loading
+   * or for first-time users.
+   */
+  const defaultWorkspace = createDefaultWorkspace();
+
   const [terminalOpen, setTerminalOpen] = useState(false);
   const [desktopTerminalCollapsed, setDesktopTerminalCollapsed] = useState(false);
   const [terminalHeight, setTerminalHeight] = useState(220);
   const [explorerCollapsed, setExplorerCollapsed] = useState(false);
   const [sidebarPhotoURL, setSidebarPhotoURL] = useState<string | null>(null);
+  const [isRunning, setIsRunning] = useState(false);
 
-  // for google profile
-  useEffect(() => {
-  const unsubscribe = onAuthStateChanged(auth, (currentUser: FirebaseUser | null) => {
-    if (!currentUser) {
-      setSidebarPhotoURL(null);
-      return;
-    }
-
-    const googlePhoto =
-      currentUser.providerData.find(
-        (provider) => provider.providerId === "google.com"
-      )?.photoURL || null;
-
-    setSidebarPhotoURL(googlePhoto || currentUser.photoURL || null);
-  });
-
-  return () => unsubscribe();
-}, []);
+  /**
+   * Auth + workspace hydration states.
+   *
+   * currentUser:
+   * The logged-in Firebase user.
+   *
+   * workspaceReady:
+   * True when initial workspace load is done.
+   *
+   * isHydratingWorkspace:
+   * Prevents autosave from firing while Firestore data is still loading.
+   */
+  const [currentUser, setCurrentUser] = useState<FirebaseUser | null>(null);
+  const [workspaceReady, setWorkspaceReady] = useState(false);
+  const [isHydratingWorkspace, setIsHydratingWorkspace] = useState(true);
 
   const [language, setLanguage] = useState<CompilerLanguage>("java");
-  const [projectTree, setProjectTree] = useState<ExplorerNode[]>([
-    {
-      id: "folder-1",
-      name: "my-project",
-      type: "folder",
-      children: [
-        createFile("file-1", "main.js", "javascript"),
-        createFile("file-2", "utils.py", "python"),
-        createFile("file-3", "app.java", "java"),
-        createFile("file-4", "query.sql", "sql"),
-      ],
-    },
-    {
-      id: "folder-2",
-      name: "snippets",
-      type: "folder",
-      children: [createFile("file-5", "index.html", "html")],
-    },
-  ]);
 
-  const [openFileIds, setOpenFileIds] = useState<string[]>(["file-3"]);
-  const [activeFileId, setActiveFileId] = useState<string>("file-3");
-  const [selectedFolderId, setSelectedFolderId] = useState<string>("folder-1");
-  const [bottomTab, setBottomTab] = useState<"output" | "problems">("output");
+  /**
+   * Workspace state.
+   *
+   * These are now persisted in Firestore.
+   */
+  const [projectTree, setProjectTree] = useState<ExplorerNode[]>(defaultWorkspace.tree);
+  const [openFileIds, setOpenFileIds] = useState<string[]>(defaultWorkspace.openFileIds);
+  const [activeFileId, setActiveFileId] = useState<string>(defaultWorkspace.activeFileId);
+  const [selectedFolderId, setSelectedFolderId] = useState<string>(
+    defaultWorkspace.selectedFolderId
+  );
+
+  const [bottomTab, setBottomTab] = useState<"output" | "problems" | "input">("output");
+  const [stdin, setStdin] = useState("");
   const [output, setOutput] = useState<string[]>([
     "[4:10:19 AM] Workspace ready.",
     "Program output will appear here when Judge0 is connected.",
   ]);
-  const [problems] = useState<string[]>(["No problems detected."]);
+  const [problems, setProblems] = useState<string[]>(["No problems detected."]);
   const [unsavedFileIds, setUnsavedFileIds] = useState<string[]>([]);
   const [dialogMode, setDialogMode] = useState<DialogMode>(null);
   const [targetNodeId, setTargetNodeId] = useState<string | null>(null);
@@ -379,6 +464,124 @@ export default function CompilerWorkspace() {
   const [newFileLanguage, setNewFileLanguage] =
     useState<CompilerLanguage>("java");
   const [mobileExplorerOpen, setMobileExplorerOpen] = useState(false);
+
+  /**
+   * Appends logs to the output terminal panel.
+   */
+  const appendLog = (message: string) => {
+    setOutput((prev) => [...prev, message]);
+  };
+
+  /**
+   * Auth listener:
+   * - gets current user
+   * - gets Google photo if available
+   * - loads workspace from Firestore
+   * - creates default workspace in Firestore if first time
+   */
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(
+      auth,
+      async (currentUser: FirebaseUser | null) => {
+        setCurrentUser(currentUser);
+
+        if (!currentUser) {
+          setSidebarPhotoURL(null);
+          setWorkspaceReady(false);
+          setIsHydratingWorkspace(false);
+          return;
+        }
+
+        
+
+        const googlePhoto =
+          currentUser.providerData.find(
+            (provider) => provider.providerId === "google.com"
+          )?.photoURL || null;
+
+        setSidebarPhotoURL(googlePhoto || currentUser.photoURL || null);
+
+        try {
+          setIsHydratingWorkspace(true);
+
+          const savedWorkspace = await loadWorkspace(currentUser.uid);
+
+          if (savedWorkspace) {
+            setProjectTree(savedWorkspace.tree);
+            setOpenFileIds(savedWorkspace.openFileIds);
+            setActiveFileId(savedWorkspace.activeFileId);
+            setSelectedFolderId(savedWorkspace.selectedFolderId);
+
+            const activeSavedFile = findFileById(
+              savedWorkspace.tree,
+              savedWorkspace.activeFileId
+            );
+            if (activeSavedFile) {
+              setLanguage(activeSavedFile.language);
+            }
+          } else {
+            const fallback = createDefaultWorkspace();
+
+            setProjectTree(fallback.tree);
+            setOpenFileIds(fallback.openFileIds);
+            setActiveFileId(fallback.activeFileId);
+            setSelectedFolderId(fallback.selectedFolderId);
+
+            const fallbackFile = findFileById(
+              fallback.tree,
+              fallback.activeFileId
+            );
+            if (fallbackFile) {
+              setLanguage(fallbackFile.language);
+            }
+
+            await saveWorkspace(currentUser.uid, fallback);
+          }
+
+          setWorkspaceReady(true);
+        } catch (error) {
+          console.error("Failed to load workspace:", error);
+          appendLog(
+            `[${new Date().toLocaleTimeString()}] Failed to load cloud workspace.`
+          );
+        } finally {
+          setIsHydratingWorkspace(false);
+        }
+      }
+    );
+
+    return () => unsubscribe();
+  }, []);
+
+  /**
+   * Automatically saves workspace changes to Firestore.
+   *
+   * Debounced by 500ms so typing does not spam writes too aggressively.
+   */
+  useEffect(() => {
+    if (!currentUser || !workspaceReady || isHydratingWorkspace) return;
+
+    const timeout = setTimeout(() => {
+      saveWorkspace(currentUser.uid, {
+        tree: projectTree,
+        openFileIds,
+        activeFileId,
+        selectedFolderId,
+      }).catch((error) => {
+        console.error("Failed to save workspace:", error);
+      });
+    }, 500);
+
+    return () => clearTimeout(timeout);
+  }, [
+    currentUser,
+    workspaceReady,
+    isHydratingWorkspace,
+    projectTree,
+    openFileIds,
+    activeFileId,
+    selectedFolderId,
+  ]);
 
   const activeFile = useMemo(
     () => findFileById(projectTree, activeFileId),
@@ -391,12 +594,18 @@ export default function CompilerWorkspace() {
     [projectTree, targetNodeId]
   );
 
+  /**
+   * If selected folder gets deleted, switch to another existing folder.
+   */
   useEffect(() => {
     if (!folderExists(projectTree, selectedFolderId)) {
       setSelectedFolderId(getFirstFolderId(projectTree));
     }
   }, [projectTree, selectedFolderId]);
 
+  /**
+   * Terminal resize logic for desktop.
+   */
   useEffect(() => {
     const handleMouseMove = (event: MouseEvent) => {
       const minHeight = 140;
@@ -431,16 +640,18 @@ export default function CompilerWorkspace() {
     };
   }, []);
 
-  const appendLog = (message: string) => {
-    setOutput((prev) => [...prev, message]);
-  };
-
+  /**
+   * Opens create-folder dialog.
+   */
   const openCreateFolderDialog = () => {
     setDialogMode("create-folder");
     setTargetNodeId(null);
     setNameInput("");
   };
 
+  /**
+   * Opens create-file dialog.
+   */
   const openCreateFileDialog = () => {
     setDialogMode("create-file");
     setTargetNodeId(null);
@@ -448,6 +659,9 @@ export default function CompilerWorkspace() {
     setNewFileLanguage(language);
   };
 
+  /**
+   * Opens rename dialog for a selected node.
+   */
   const openRenameDialog = (nodeId: string) => {
     const node = findNodeById(projectTree, nodeId);
     if (!node) return;
@@ -457,6 +671,9 @@ export default function CompilerWorkspace() {
     setNameInput(node.name);
   };
 
+  /**
+   * Opens delete confirmation dialog.
+   */
   const openDeleteDialog = (nodeId: string) => {
     const node = findNodeById(projectTree, nodeId);
     if (!node) return;
@@ -466,12 +683,18 @@ export default function CompilerWorkspace() {
     setNameInput(node.name);
   };
 
+  /**
+   * Closes the active dialog and resets fields.
+   */
   const closeDialog = () => {
     setDialogMode(null);
     setTargetNodeId(null);
     setNameInput("");
   };
 
+  /**
+   * Opens a file tab and makes it active.
+   */
   const handleOpenFile = (fileId: string) => {
     const file = findFileById(projectTree, fileId);
     if (!file) return;
@@ -485,6 +708,9 @@ export default function CompilerWorkspace() {
     setMobileExplorerOpen(false);
   };
 
+  /**
+   * Closes a tab and switches active file if needed.
+   */
   const handleCloseTab = (fileId: string) => {
     const nextOpen = openFileIds.filter((id) => id !== fileId);
     setOpenFileIds(nextOpen);
@@ -502,6 +728,10 @@ export default function CompilerWorkspace() {
     }
   };
 
+  /**
+   * Updates the current active file content.
+   * Also marks file as unsaved.
+   */
   const handleContentChange = (value: string) => {
     if (!activeFile) return;
 
@@ -512,6 +742,10 @@ export default function CompilerWorkspace() {
     );
   };
 
+  /**
+   * Updates the active file language.
+   * Also marks file as unsaved.
+   */
   const handleLanguageChange = (nextLanguage: CompilerLanguage) => {
     setLanguage(nextLanguage);
 
@@ -520,9 +754,11 @@ export default function CompilerWorkspace() {
     setProjectTree((prev) =>
       updateFileLanguage(prev, activeFile.id, nextLanguage)
     );
+
     setUnsavedFileIds((prev) =>
       prev.includes(activeFile.id) ? prev : [...prev, activeFile.id]
     );
+
     appendLog(
       `[${new Date().toLocaleTimeString()}] ${activeFile.name} language set to ${formatLanguageLabel(
         nextLanguage
@@ -530,6 +766,13 @@ export default function CompilerWorkspace() {
     );
   };
 
+  /**
+   * Save button logic.
+   *
+   * Firestore autosave is already active,
+   * so this currently acts like a manual "mark saved" action
+   * and gives user feedback in terminal.
+   */
   const handleSave = () => {
     if (!activeFile) return;
 
@@ -539,12 +782,16 @@ export default function CompilerWorkspace() {
     );
   };
 
+  /**
+   * Downloads the active file to the user's computer.
+   */
   const handleDownloadFile = () => {
     if (!activeFile) return;
 
     const blob = new Blob([activeFile.content], {
       type: "text/plain;charset=utf-8",
     });
+
     const url = URL.createObjectURL(blob);
 
     const anchor = document.createElement("a");
@@ -557,18 +804,102 @@ export default function CompilerWorkspace() {
     appendLog(`Downloaded ${activeFile.name}.`);
   };
 
-  const handleRun = () => {
-    if (!activeFile) return;
-
-    setBottomTab("output");
-    setOutput((prev) => [
-      ...prev,
-      `[${new Date().toLocaleTimeString()}] Running ${activeFile.name} (${language})...`,
-      "Judge0 CE integration will be connected in Phase 2.",
-    ]);
+  /**
+   * Clears terminal output panel.
+   */
+  const handleClearOutput = () => {
+    setOutput([`[${new Date().toLocaleTimeString()}] Output cleared.`]);
   };
 
+  /**
+   * Runs the current file using Judge0 service.
+   */
+  const handleRun = async () => {
+    if (!activeFile || isRunning) return;
+
+    if (activeFile.language === "html" || activeFile.language === "sql") {
+      setBottomTab("problems");
+      setProblems([
+        `${formatLanguageLabel(
+          activeFile.language
+        )} execution is not connected yet.`,
+        "HTML preview and SQL result/table rendering will be added later.",
+      ]);
+      setOutput((prev) => [
+        ...prev,
+        `[${new Date().toLocaleTimeString()}] Run blocked for ${activeFile.name}.`,
+      ]);
+      return;
+    }
+
+    setBottomTab("output");
+    setIsRunning(true);
+    setProblems([]);
+
+    setOutput([
+      `[${new Date().toLocaleTimeString()}] Running ${activeFile.name} (${formatLanguageLabel(
+        activeFile.language
+      )})...`,
+      stdin.trim()
+        ? `[${new Date().toLocaleTimeString()}] Standard input detected.`
+        : `[${new Date().toLocaleTimeString()}] No standard input provided.`,
+    ]);
+
+    try {
+      const result = await runCode({
+        sourceCode: activeFile.content,
+        language: activeFile.language,
+        stdin,
+      });
+
+      const nextProblems: string[] = [];
+
+      if (result.compileOutput) {
+        nextProblems.push(result.compileOutput);
+      }
+
+      if (result.stderr) {
+        nextProblems.push(result.stderr);
+      }
+
+      if (result.message) {
+        nextProblems.push(result.message);
+      }
+
+      setProblems(
+        nextProblems.length > 0 ? nextProblems : ["No problems detected."]
+      );
+
+      setOutput((prev) => [
+        ...prev,
+        `[${new Date().toLocaleTimeString()}] Status: ${result.status}`,
+        result.stdout
+          ? result.stdout
+          : `[${new Date().toLocaleTimeString()}] Program finished with no stdout.`,
+      ]);
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "Unknown error occurred.";
+
+      setProblems([message]);
+      setBottomTab("problems");
+
+      setOutput((prev) => [
+        ...prev,
+        `[${new Date().toLocaleTimeString()}] Run failed for ${activeFile.name}.`,
+      ]);
+    } finally {
+      setIsRunning(false);
+    }
+  };
+
+  /**
+   * Handles confirmation for create / rename / delete dialogs.
+   */
   const handleDialogConfirm = () => {
+    /**
+     * CREATE FOLDER
+     */
     if (dialogMode === "create-folder") {
       const trimmed = nameInput.trim();
       if (!trimmed) return;
@@ -587,6 +918,9 @@ export default function CompilerWorkspace() {
       return;
     }
 
+    /**
+     * CREATE FILE
+     */
     if (dialogMode === "create-file") {
       const trimmed = nameInput.trim();
       if (!trimmed) return;
@@ -604,14 +938,19 @@ export default function CompilerWorkspace() {
       setOpenFileIds((prev) => [...prev, newFile.id]);
       setActiveFileId(newFile.id);
       setLanguage(newFile.language);
+
       setUnsavedFileIds((prev) =>
         prev.includes(newFile.id) ? prev : [...prev, newFile.id]
       );
+
       appendLog(`Created file "${newFile.name}".`);
       closeDialog();
       return;
     }
 
+    /**
+     * RENAME NODE
+     */
     if (dialogMode === "rename" && targetNode) {
       const trimmed = nameInput.trim();
       if (!trimmed) return;
@@ -622,6 +961,9 @@ export default function CompilerWorkspace() {
       return;
     }
 
+    /**
+     * DELETE NODE
+     */
     if (dialogMode === "delete" && targetNode) {
       const deletedFileIds = collectFileIdsFromNode(targetNode);
       const nextTree = deleteNodeById(projectTree, targetNode.id);
@@ -642,10 +984,14 @@ export default function CompilerWorkspace() {
         if (nextOpenIds.length > 0) {
           const nextActiveId = nextOpenIds[nextOpenIds.length - 1];
           setActiveFileId(nextActiveId);
+
           const nextActiveFile = findFileById(nextTree, nextActiveId);
-          if (nextActiveFile) setLanguage(nextActiveFile.language);
+          if (nextActiveFile) {
+            setLanguage(nextActiveFile.language);
+          }
         } else {
           const fallbackFile = getFirstFile(nextTree);
+
           if (fallbackFile) {
             setActiveFileId(fallbackFile.id);
             setOpenFileIds([fallbackFile.id]);
@@ -661,10 +1007,15 @@ export default function CompilerWorkspace() {
     }
   };
 
+  /**
+   * Starts terminal drag-resize on desktop.
+   */
   const handleTerminalResizeStart = () => {
     if (desktopTerminalCollapsed) return;
+
     const resizeFn = (window as Window & { startTerminalResize?: () => void })
       .startTerminalResize;
+
     resizeFn?.();
   };
 
@@ -679,38 +1030,61 @@ export default function CompilerWorkspace() {
 
   const dialogDescription =
     dialogMode === "create-folder"
-      ? "Create a new project folder in your local workspace."
+      ? "Create a new project folder in your workspace."
       : dialogMode === "create-file"
       ? "Create a new file inside the selected folder."
       : dialogMode === "rename"
       ? "Update the name of the selected item."
-      : `This will remove "${targetNode?.name ?? ""}" from the local workspace.`;
+      : `This will remove "${targetNode?.name ?? ""}" from your workspace.`;
+
+  /**
+   * Loading screen while Firestore workspace is being restored.
+   * Prevents flicker and prevents default data from flashing.
+   */
+  if (isHydratingWorkspace) {
+    return (
+      <div className="flex h-screen items-center justify-center bg-background text-foreground">
+        <div className="rounded-2xl border border-border bg-card/50 px-6 py-5 shadow-xl shadow-primary/5">
+          <p className="font-mono text-xs uppercase tracking-[0.28em] text-primary">
+            Judge-Compilo
+          </p>
+          <h2 className="mt-2 font-mono text-lg font-semibold">
+            Loading workspace...
+          </h2>
+          <p className="mt-2 text-sm text-muted-foreground">
+            Restoring your folders and files from Firestore.
+          </p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <>
       <div className="flex h-screen w-full overflow-hidden bg-background text-foreground">
-   <FileExplorer
-  tree={projectTree}
-  selectedFolderId={selectedFolderId}
-  activeFileId={activeFileId}
-  mobileOpen={mobileExplorerOpen}
-  collapsed={explorerCollapsed}
-  onCloseMobile={() => setMobileExplorerOpen(false)}
-  onToggleCollapse={() => setExplorerCollapsed((prev) => !prev)}
-  onSelectFolder={setSelectedFolderId}
-  onOpenFile={handleOpenFile}
-  onCreateFolder={openCreateFolderDialog}
-  onCreateFile={openCreateFileDialog}
-  onRenameNode={openRenameDialog}
-  onDeleteNode={openDeleteDialog}
-  onProfileClick={() => navigate("/profile")}
-  userPhotoURL={sidebarPhotoURL}
-/>
+        <FileExplorer
+          tree={projectTree}
+          selectedFolderId={selectedFolderId}
+          activeFileId={activeFileId}
+          mobileOpen={mobileExplorerOpen}
+          collapsed={explorerCollapsed}
+          onCloseMobile={() => setMobileExplorerOpen(false)}
+          onToggleCollapse={() => setExplorerCollapsed((prev) => !prev)}
+          onSelectFolder={setSelectedFolderId}
+          onOpenFile={handleOpenFile}
+          onCreateFolder={openCreateFolderDialog}
+          onCreateFile={openCreateFileDialog}
+          onRenameNode={openRenameDialog}
+          onDeleteNode={openDeleteDialog}
+          onProfileClick={() => navigate("/profile")}
+          userPhotoURL={sidebarPhotoURL}
+        />
 
         <div className="flex min-w-0 flex-1 flex-col">
           <Topbar
             language={language}
             activeFileName={activeFile?.name ?? "No file selected"}
+            isRunning={isRunning}
             onLanguageChange={handleLanguageChange}
             onSave={handleSave}
             onRun={handleRun}
@@ -778,7 +1152,10 @@ export default function CompilerWorkspace() {
               activeTab={bottomTab}
               output={output}
               problems={problems}
+              stdin={stdin}
               onChangeTab={setBottomTab}
+              onStdinChange={setStdin}
+              onClearOutput={handleClearOutput}
               collapsed={desktopTerminalCollapsed}
               height={terminalHeight}
               onResizeStart={handleTerminalResizeStart}
@@ -844,8 +1221,7 @@ export default function CompilerWorkspace() {
 
             {dialogMode === "delete" && (
               <div className="mt-5 rounded-xl border border-destructive/20 bg-destructive/5 px-4 py-3 text-sm text-muted-foreground">
-                This action only affects local Phase 1 state for now. Firebase
-                persistence comes in Phase 2.
+                This action will also persist to Firestore workspace storage.
               </div>
             )}
 

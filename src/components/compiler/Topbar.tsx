@@ -5,6 +5,7 @@ import type { CompilerLanguage } from "../../pages/CompilerWorkspace";
 type TopbarProps = {
   language: CompilerLanguage;
   activeFileName: string;
+  isRunning: boolean;
   onLanguageChange: (language: CompilerLanguage) => void;
   onSave: () => void;
   onRun: () => void;
@@ -26,6 +27,7 @@ const languages: { label: string; value: CompilerLanguage }[] = [
 
 export default function Topbar({
   language,
+  isRunning,
   onLanguageChange,
   onSave,
   onRun,
@@ -79,7 +81,7 @@ export default function Topbar({
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
-          <select
+          {/* <select
             value={language}
             onChange={(e) => onLanguageChange(e.target.value as CompilerLanguage)}
             className="h-10 rounded-xl border border-border bg-background px-3 font-mono text-sm outline-none transition focus:border-primary"
@@ -89,7 +91,7 @@ export default function Topbar({
                 {item.label}
               </option>
             ))}
-          </select>
+          </select> */}
 
           <button
             onClick={onSave}
@@ -115,13 +117,14 @@ export default function Topbar({
             {isDark ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
           </button>
 
-          <button
-            onClick={onRun}
-            className="inline-flex h-10 items-center gap-2 rounded-xl bg-primary px-4 font-mono text-sm font-semibold text-primary-foreground shadow-lg shadow-primary/20 transition hover:opacity-90"
-          >
-            <Play className="h-4 w-4" />
-            Run
-          </button>
+         <button
+  onClick={onRun}
+  disabled={isRunning}
+  className="inline-flex h-10 items-center gap-2 rounded-xl bg-primary px-4 font-mono text-sm font-semibold text-primary-foreground shadow-lg shadow-primary/20 transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
+>
+  <Play className="h-4 w-4" />
+  {isRunning ? "Running..." : "Run"}
+</button>
         </div>
       </div>
     </div>
