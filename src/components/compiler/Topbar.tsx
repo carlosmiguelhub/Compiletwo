@@ -1,45 +1,16 @@
 import { Download, Menu, Moon, Play, Save, Sun } from "lucide-react";
 import { useEffect, useState } from "react";
-import type { CompilerLanguage } from "../../pages/CompilerWorkspace";
 
 type TopbarProps = {
-  language: CompilerLanguage;
-  activeFileName: string;
   isRunning: boolean;
-  onLanguageChange: (language: CompilerLanguage) => void;
   onSave: () => void;
   onRun: () => void;
   onDownload: () => void;
   onToggleExplorer: () => void;
 };
 
-/**
- * Language list for the topbar.
- *
- * NOTE:
- * Right now this array is not being rendered in the UI yet,
- * because there is no <select> in the returned JSX.
- *
- * I am still adding PHP here so this file stays aligned
- * with CompilerWorkspace and Judge0 service.
- */
-const languages: { label: string; value: CompilerLanguage }[] = [
-  { label: "Java", value: "java" },
-  { label: "JavaScript", value: "javascript" },
-  { label: "TypeScript", value: "typescript" },
-  { label: "Python", value: "python" },
-  { label: "C", value: "c" },
-  { label: "C++", value: "cpp" },
-  { label: "C#", value: "csharp" },
-  { label: "PHP", value: "php" },
-  { label: "SQL", value: "sql" },
-  { label: "HTML", value: "html" },
-];
-
 export default function Topbar({
-  language,
   isRunning,
-  onLanguageChange,
   onSave,
   onRun,
   onDownload,
@@ -93,16 +64,7 @@ export default function Topbar({
           </div>
 
           <div className="min-w-0">
-            <p className="truncate font-mono">
-              Code Workspace
-            </p>
-
-            {/*
-              You can restore this later if you want the active file name shown.
-            */}
-            {/* <h1 className="truncate font-mono text-base font-semibold">
-              {activeFileName}
-            </h1> */}
+            <p className="truncate font-mono">Code Workspace</p>
           </div>
         </div>
 

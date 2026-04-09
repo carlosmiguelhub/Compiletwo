@@ -253,26 +253,7 @@ function updateFileContent(
 /**
  * Updates a file's language inside the tree.
  */
-function updateFileLanguage(
-  nodes: ExplorerNode[],
-  fileId: string,
-  nextLanguage: CompilerLanguage
-): ExplorerNode[] {
-  return nodes.map((node) => {
-    if (node.type === "file" && node.id === fileId) {
-      return { ...node, language: nextLanguage };
-    }
 
-    if (node.type === "folder") {
-      return {
-        ...node,
-        children: updateFileLanguage(node.children, fileId, nextLanguage),
-      };
-    }
-
-    return node;
-  });
-}
 
 /**
  * Adds a new node inside a selected folder.
@@ -753,30 +734,6 @@ const openCreateFileDialog = (folderId?: string) => {
   };
 
   /**
-   * Updates the active file language.
-   * Also marks file as unsaved.
-   */
-  const handleLanguageChange = (nextLanguage: CompilerLanguage) => {
-    setLanguage(nextLanguage);
-
-    if (!activeFile) return;
-
-    setProjectTree((prev) =>
-      updateFileLanguage(prev, activeFile.id, nextLanguage)
-    );
-
-    setUnsavedFileIds((prev) =>
-      prev.includes(activeFile.id) ? prev : [...prev, activeFile.id]
-    );
-
-    appendLog(
-      `[${new Date().toLocaleTimeString()}] ${activeFile.name} language set to ${formatLanguageLabel(
-        nextLanguage
-      )}.`
-    );
-  };
-
-  /**
    * Save button logic.
    *
    * Firestore autosave is already active,
@@ -1107,15 +1064,12 @@ if (dialogMode === "create-file") {
 
         <div className="flex min-w-0 flex-1 flex-col">
           <Topbar
-            language={language}
-            activeFileName={activeFile?.name ?? "No file selected"}
-            isRunning={isRunning}
-            onLanguageChange={handleLanguageChange}
-            onSave={handleSave}
-            onRun={handleRun}
-            onDownload={handleDownloadFile}
-            onToggleExplorer={() => setMobileExplorerOpen(true)}
-          />
+  isRunning={isRunning}
+  onSave={handleSave}
+  onRun={handleRun}
+  onDownload={handleDownloadFile}
+  onToggleExplorer={() => setMobileExplorerOpen(true)}
+/>
 
           <EditorTabs
             files={allFiles.filter((file) => openFileIds.includes(file.id))}
@@ -1153,7 +1107,7 @@ if (dialogMode === "create-file") {
                     New Folder
                   </button>
                   <button
-                    onClick={openCreateFileDialog}
+                  onClick={() => openCreateFileDialog()}
                     className="rounded-xl bg-primary px-4 py-2 font-mono text-sm font-semibold text-primary-foreground transition hover:opacity-90"
                   >
                     New File
