@@ -20,7 +20,8 @@ export type CompilerLanguage =
   | "csharp"
   | "php"
   | "sql"
-  | "html";
+  | "html"
+  | "css";
 
 export type ExplorerFile = {
   id: string;
@@ -57,6 +58,7 @@ const languageOptions: CompilerLanguage[] = [
   "php",
   "sql",
   "html",
+  "css",
 ];
 
 /**
@@ -129,11 +131,148 @@ echo "Hello from Judge-Compilo";
   </body>
 </html>
 `,
+  css: `body {
+  font-family: Arial, sans-serif;
+  padding: 24px;
+  background: #0f172a;
+  color: white;
+}
+
+h1 {
+  color: #38bdf8;
+}
+`,
 };
 
 /**
+ * Finds the folder that directly contains the given file id.
+ */
+function findParentFolderOfFile(
+  nodes: ExplorerNode[],
+  fileId: string
+): ExplorerFolder | null {
+  for (const node of nodes) {
+    if (node.type === "folder") {
+      const hasDirectChild = node.children.some(
+        (child) => child.type === "file" && child.id === fileId
+      );
+
+      if (hasDirectChild) return node;
+
+      const nested = findParentFolderOfFile(node.children, fileId);
+      if (nested) return nested;
+    }
+  }
+
+  return null;
+}
+
+/**
+ * Escapes a closing </script> tag inside JS content
+ * so injected inline scripts do not break the HTML string.
+ */
+function escapeInlineScriptContent(code: string): string {
+  return code.replace(/<\/script>/gi, "<\\/script>");
+}
+
+/**
+ * Builds the final preview HTML by injecting CSS and JS
+ * from sibling files in the same folder.
+ */
+function buildPreviewDocument(
+  html: string,
+  cssBlocks: string[],
+  jsBlocks: string[]
+): string {
+  const cssTag = cssBlocks.length
+    ? `\n<style>\n${cssBlocks.join("\n\n")}\n</style>\n`
+    : "";
+
+  const jsTag = jsBlocks.length
+    ? `\n<script>\n${escapeInlineScriptContent(jsBlocks.join("\n\n"))}\n</script>\n`
+    : "";
+
+  let nextHtml = html;
+
+  if (cssTag) {
+    if (/<\/head>/i.test(nextHtml)) {
+      nextHtml = nextHtml.replace(/<\/head>/i, `${cssTag}</head>`);
+    } else {
+      nextHtml = cssTag + nextHtml;
+    }
+  }
+
+  if (jsTag) {
+    if (/<\/body>/i.test(nextHtml)) {
+      nextHtml = nextHtml.replace(/<\/body>/i, `${jsTag}</body>`);
+    } else {
+      nextHtml = nextHtml + jsTag;
+    }
+  }
+
+  return nextHtml;
+}
+/**
  * Creates a file node with starter content.
  */
+
+function getExtensionByLanguage(language: CompilerLanguage): string {
+  const map: Record<CompilerLanguage, string> = {
+    javascript: "js",
+    typescript: "ts",
+    python: "py",
+    java: "java",
+    c: "c",
+    cpp: "cpp",
+    csharp: "cs",
+    php: "php",
+    sql: "sql",
+    html: "html",
+    css: "css",
+  };
+
+  return map[language];
+}
+
+function ensureFileNameHasExtension(
+  name: string,
+  language: CompilerLanguage
+): string {
+  const trimmed = name.trim();
+  const expectedExtension = getExtensionByLanguage(language);
+
+  if (!trimmed) {
+    return `untitled.${expectedExtension}`;
+  }
+
+  const lowerTrimmed = trimmed.toLowerCase();
+  const expectedSuffix = `.${expectedExtension}`;
+
+  if (lowerTrimmed.endsWith(expectedSuffix)) {
+    return trimmed;
+  }
+
+  return `${trimmed}.${expectedExtension}`;
+}
+
+function getDefaultFileName(language: CompilerLanguage): string {
+  const map: Record<CompilerLanguage, string> = {
+    javascript: "script.js",
+    typescript: "main.ts",
+    python: "main.py",
+    java: "Main.java",
+    c: "main.c",
+    cpp: "main.cpp",
+    csharp: "Program.cs",
+    php: "index.php",
+    sql: "query.sql",
+    html: "index.html",
+    css: "style.css",
+  };
+
+  return map[language];
+}
+
 function createFile(
   id: string,
   name: string,
@@ -169,7 +308,11 @@ function createDefaultProjectTree(): ExplorerNode[] {
       id: "folder-2",
       name: "snippets",
       type: "folder",
-      children: [createFile("file-5", "index.html", "html")],
+      children: [
+        createFile("file-5", "index.html", "html"),
+        createFile("file-6", "styles.css", "css"),
+        createFile("file-7", "script.js", "javascript"),
+      ],
     },
   ];
 }
@@ -386,6 +529,7 @@ function formatLanguageLabel(language: CompilerLanguage) {
     php: "PHP",
     sql: "SQL",
     html: "HTML",
+    css: "CSS",
   };
 
   return map[language];
@@ -437,8 +581,12 @@ export default function CompilerWorkspace() {
     defaultWorkspace.selectedFolderId
   );
 
-  const [bottomTab, setBottomTab] = useState<"output" | "problems" | "input">("output");
-  const [stdin, setStdin] = useState("");
+/**
+ * Bottom terminal tabs.
+ * Preview is handled in a new browser tab for HTML files.
+ */
+const [bottomTab, setBottomTab] = useState<"output" | "problems" | "input">("output");
+const [stdin, setStdin] = useState("");
   const [output, setOutput] = useState<string[]>([
     "[4:10:19 AM] Workspace ready.",
     "Program output will appear here when Judge0 is connected.",
@@ -644,12 +792,13 @@ export default function CompilerWorkspace() {
  * If not provided, we fall back to the currently selected folder.
  */
 const openCreateFileDialog = (folderId?: string) => {
+  const initialLanguage = language;
+
   setDialogMode("create-file");
   setTargetNodeId(folderId ?? selectedFolderId);
-  setNameInput("");
-  setNewFileLanguage(language);
+  setNewFileLanguage(initialLanguage);
+  setNameInput(getDefaultFileName(initialLanguage));
 };
-
   /**
    * Opens rename dialog for a selected node.
    */
@@ -778,95 +927,146 @@ const openCreateFileDialog = (folderId?: string) => {
     setOutput([`[${new Date().toLocaleTimeString()}] Output cleared.`]);
   };
 
-  /**
-   * Runs the current file using Judge0 service.
-   */
-  const handleRun = async () => {
-    if (!activeFile || isRunning) return;
 
-      /**
-   * HTML is not executed by Judge0.
-   * We still block HTML here until you add preview mode later.
-   *
-   * SQL is now allowed to run through Judge0.
-   */
-  if (activeFile.language === "html") {
-    setBottomTab("problems");
+
+
+/**
+ * Opens the active HTML file in a new browser tab.
+ * This is used instead of rendering HTML inside the terminal panel.
+ */
+const handlePreviewHtml = () => {
+  if (!activeFile || activeFile.language !== "html") return;
+
+  const parentFolder = findParentFolderOfFile(projectTree, activeFile.id);
+
+  const siblingFiles =
+    parentFolder?.children.filter(
+      (child): child is ExplorerFile =>
+        child.type === "file" && child.id !== activeFile.id
+    ) ?? [];
+
+  const cssFiles = siblingFiles.filter(
+    (file) => file.language === "css" || file.name.toLowerCase().endsWith(".css")
+  );
+
+  const jsFiles = siblingFiles.filter(
+    (file) =>
+      file.language === "javascript" || file.name.toLowerCase().endsWith(".js")
+  );
+
+  const previewHtml = buildPreviewDocument(
+    activeFile.content,
+    cssFiles.map((file) => file.content),
+    jsFiles.map((file) => file.content)
+  );
+
+  const previewWindow = window.open("", "_blank");
+
+  if (!previewWindow) {
     setProblems([
-      "HTML execution is not connected to Judge0.",
-      "HTML preview will be added later.",
+      "Preview popup was blocked by the browser.",
+      "Allow popups for this site and try again.",
     ]);
-    setOutput((prev) => [
-      ...prev,
-      `[${new Date().toLocaleTimeString()}] Run blocked for ${activeFile.name}.`,
-    ]);
+    setBottomTab("problems");
     return;
   }
 
-    setBottomTab("output");
-    setIsRunning(true);
-    setProblems([]);
+  previewWindow.document.open();
+  previewWindow.document.write(previewHtml);
+  previewWindow.document.close();
 
-    setOutput([
-      `[${new Date().toLocaleTimeString()}] Running ${activeFile.name} (${formatLanguageLabel(
-        activeFile.language
-      )})...`,
-      stdin.trim()
-        ? `[${new Date().toLocaleTimeString()}] Standard input detected.`
-        : `[${new Date().toLocaleTimeString()}] No standard input provided.`,
+  setOutput((prev) => [
+    ...prev,
+    `[${new Date().toLocaleTimeString()}] Opened preview for ${activeFile.name}.`,
+    `[${new Date().toLocaleTimeString()}] Included ${cssFiles.length} CSS file(s) and ${jsFiles.length} JS file(s) from the same folder.`,
+  ]);
+};
+
+
+
+/**
+ * Runs the current file using Judge0 service.
+ *
+ * Special case:
+ * - HTML does not run through Judge0.
+ * - Instead, it is rendered in the Preview tab.
+ */
+const handleRun = async () => {
+  if (!activeFile || isRunning) return;
+
+  /**
+   * HTML does not run through Judge0.
+   * Users should use the Preview button instead.
+   */
+  if (activeFile.language === "html" || activeFile.language === "css") {
+  setProblems([
+    `${formatLanguageLabel(activeFile.language)} does not run through Judge0.`,
+    "Use the Preview button from an HTML file to open it in a new tab.",
+  ]);
+  setBottomTab("problems");
+  setOutput((prev) => [
+    ...prev,
+    `[${new Date().toLocaleTimeString()}] Run blocked for ${activeFile.name}. Use Preview instead.`,
+  ]);
+  return;
+}
+
+  setBottomTab("output");
+  setIsRunning(true);
+  setProblems([]);
+
+  setOutput([
+    `[${new Date().toLocaleTimeString()}] Running ${activeFile.name} (${formatLanguageLabel(
+      activeFile.language
+    )})...`,
+    stdin.trim()
+      ? `[${new Date().toLocaleTimeString()}] Standard input detected.`
+      : `[${new Date().toLocaleTimeString()}] No standard input provided.`,
+  ]);
+
+  try {
+    /**
+     * At this point, HTML has already been excluded above,
+     * so this cast is safe for Judge0-supported languages.
+     */
+    const result = await runCode({
+      sourceCode: activeFile.content,
+      language: activeFile.language as Exclude<CompilerLanguage, "html" | "css">,
+      stdin,
+    });
+
+    const nextProblems: string[] = [];
+
+    if (result.compileOutput) nextProblems.push(result.compileOutput);
+    if (result.stderr) nextProblems.push(result.stderr);
+    if (result.message) nextProblems.push(result.message);
+
+    setProblems(
+      nextProblems.length > 0 ? nextProblems : ["No problems detected."]
+    );
+
+    setOutput((prev) => [
+      ...prev,
+      `[${new Date().toLocaleTimeString()}] Status: ${result.status}`,
+      result.stdout
+        ? result.stdout
+        : `[${new Date().toLocaleTimeString()}] Program finished with no stdout.`,
     ]);
+  } catch (error) {
+    const message =
+      error instanceof Error ? error.message : "Unknown error occurred.";
 
-    try {
-            /**
-       * At this point, HTML has already been blocked above,
-       * so this cast is safe for Judge0-supported languages.
-       */
-      const result = await runCode({
-        sourceCode: activeFile.content,
-        language: activeFile.language as Exclude<CompilerLanguage, "html">,
-        stdin,
-      });
+    setProblems([message]);
+    setBottomTab("problems");
 
-      const nextProblems: string[] = [];
-
-      if (result.compileOutput) {
-        nextProblems.push(result.compileOutput);
-      }
-
-      if (result.stderr) {
-        nextProblems.push(result.stderr);
-      }
-
-      if (result.message) {
-        nextProblems.push(result.message);
-      }
-
-      setProblems(
-        nextProblems.length > 0 ? nextProblems : ["No problems detected."]
-      );
-
-      setOutput((prev) => [
-        ...prev,
-        `[${new Date().toLocaleTimeString()}] Status: ${result.status}`,
-        result.stdout
-          ? result.stdout
-          : `[${new Date().toLocaleTimeString()}] Program finished with no stdout.`,
-      ]);
-    } catch (error) {
-      const message =
-        error instanceof Error ? error.message : "Unknown error occurred.";
-
-      setProblems([message]);
-      setBottomTab("problems");
-
-      setOutput((prev) => [
-        ...prev,
-        `[${new Date().toLocaleTimeString()}] Run failed for ${activeFile.name}.`,
-      ]);
-    } finally {
-      setIsRunning(false);
-    }
-  };
+    setOutput((prev) => [
+      ...prev,
+      `[${new Date().toLocaleTimeString()}] Run failed for ${activeFile.name}.`,
+    ]);
+  } finally {
+    setIsRunning(false);
+  }
+};
 
   /**
    * Handles confirmation for create / rename / delete dialogs.
@@ -898,23 +1098,20 @@ const openCreateFileDialog = (folderId?: string) => {
  */
 if (dialogMode === "create-file") {
   const trimmed = nameInput.trim();
-  if (!trimmed) return;
+if (!trimmed) return;
 
-  /**
-   * Use the folder remembered when the create-file dialog was opened.
-   * If none was stored, fall back to the selected folder.
-   * If selected folder is empty/missing, fall back to the first folder found.
-   */
-  const folderId =
-    targetNodeId || selectedFolderId || getFirstFolderId(projectTree);
+const folderId =
+  targetNodeId || selectedFolderId || getFirstFolderId(projectTree);
 
-  if (!folderId) return;
+if (!folderId) return;
 
-  const newFile = createFile(
-    `file-${Date.now()}`,
-    trimmed,
-    newFileLanguage
-  );
+const finalFileName = ensureFileNameHasExtension(trimmed, newFileLanguage);
+
+const newFile = createFile(
+  `file-${Date.now()}`,
+  finalFileName,
+  newFileLanguage
+);
 
   setProjectTree((prev) => addNodeToFolder(prev, folderId, newFile));
   setOpenFileIds((prev) => [...prev, newFile.id]);
@@ -937,7 +1134,13 @@ if (dialogMode === "create-file") {
       const trimmed = nameInput.trim();
       if (!trimmed) return;
 
-      setProjectTree((prev) => renameNodeById(prev, targetNode.id, trimmed));
+const nextName =
+  targetNode.type === "file"
+    ? ensureFileNameHasExtension(trimmed, targetNode.language)
+    : trimmed;
+
+      setProjectTree((prev) => renameNodeById(prev, targetNode.id, nextName));
+      appendLog(`Renamed "${targetNode.name}" to "${nextName}".`);
       appendLog(`Renamed "${targetNode.name}" to "${trimmed}".`);
       closeDialog();
       return;
@@ -1063,10 +1266,15 @@ if (dialogMode === "create-file") {
         />
 
         <div className="flex min-w-0 flex-1 flex-col">
-          <Topbar
+  <Topbar
   isRunning={isRunning}
+  showPreviewButton={activeFile?.language === "html"}
+  disableRun={
+    activeFile?.language === "html" || activeFile?.language === "css"
+  }
   onSave={handleSave}
   onRun={handleRun}
+  onPreviewHtml={handlePreviewHtml}
   onDownload={handleDownloadFile}
   onToggleExplorer={() => setMobileExplorerOpen(true)}
 />
@@ -1127,21 +1335,22 @@ if (dialogMode === "create-file") {
           </div>
 
           <div className={`${terminalOpen ? "block" : "hidden"} lg:block`}>
-            <BottomPanel
-              activeTab={bottomTab}
-              output={output}
-              problems={problems}
-              stdin={stdin}
-              onChangeTab={setBottomTab}
-              onStdinChange={setStdin}
-              onClearOutput={handleClearOutput}
-              collapsed={desktopTerminalCollapsed}
-              height={terminalHeight}
-              onResizeStart={handleTerminalResizeStart}
-              onToggleCollapse={() =>
-                setDesktopTerminalCollapsed((prev) => !prev)
-              }
-            />
+    <BottomPanel
+  activeTab={bottomTab}
+  output={output}
+  problems={problems}
+  stdin={stdin}
+  onChangeTab={setBottomTab}
+  onStdinChange={setStdin}
+  onClearOutput={handleClearOutput}
+  collapsed={desktopTerminalCollapsed}
+  height={terminalHeight}
+  onToggleCollapse={() =>
+    setDesktopTerminalCollapsed((prev) => !prev)
+  }
+  onResizeStart={handleTerminalResizeStart}
+/>
+
           </div>
         </div>
       </div>
@@ -1168,9 +1377,11 @@ if (dialogMode === "create-file") {
                   <input
                     value={nameInput}
                     onChange={(e) => setNameInput(e.target.value)}
-                    placeholder={
-                      dialogMode === "create-file" ? "main.cpp" : "my-project"
-                    }
+                   placeholder={
+  dialogMode === "create-file"
+    ? getDefaultFileName(newFileLanguage)
+    : "my-project"
+}
                     className="h-11 w-full rounded-xl border border-border bg-background px-3 font-mono text-sm outline-none transition focus:border-primary"
                   />
                 </div>
@@ -1182,9 +1393,11 @@ if (dialogMode === "create-file") {
                     </label>
                     <select
                       value={newFileLanguage}
-                      onChange={(e) =>
-                        setNewFileLanguage(e.target.value as CompilerLanguage)
-                      }
+                      onChange={(e) => {
+  const nextLanguage = e.target.value as CompilerLanguage;
+  setNewFileLanguage(nextLanguage);
+  setNameInput(getDefaultFileName(nextLanguage));
+}}
                       className="h-11 w-full rounded-xl border border-border bg-background px-3 font-mono text-sm outline-none transition focus:border-primary"
                     >
                       {languageOptions.map((item) => (

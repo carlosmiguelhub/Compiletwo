@@ -2,8 +2,11 @@ import {
   ChevronDown,
   ChevronRight,
   FileCode2,
+  FileJson2,
   FilePlus2,
+  FileText,
   Folder,
+  FolderOpen,
   FolderPlus,
   PanelLeftClose,
   PanelLeftOpen,
@@ -12,14 +15,16 @@ import {
   X,
   UserCircle2,
 } from "lucide-react";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import type { ExplorerNode } from "../../pages/CompilerWorkspace";
 
 /**
  * File explorer props from parent.
  *
- * onCreateFile now accepts an optional folderId
- * so we can create a file directly inside a folder.
+ * IMPORTANT:
+ * If you want the UI to show "app.html",
+ * then the actual created file name must already be "app.html"
+ * inside your tree data.
  */
 type FileExplorerProps = {
   tree: ExplorerNode[];
@@ -39,9 +44,6 @@ type FileExplorerProps = {
   userPhotoURL?: string | null;
 };
 
-/**
- * Props for each tree node (file or folder).
- */
 type TreeNodeProps = {
   node: ExplorerNode;
   level?: number;
@@ -56,16 +58,100 @@ type TreeNodeProps = {
 };
 
 /**
- * Small action buttons on the right side of each row.
+ * Gets the file extension from a file name.
+ * Example:
+ * - app.html => html
+ * - style.css => css
+ * - script.js => js
+ */
+function getExtension(fileName: string) {
+  const parts = fileName.split(".");
+  if (parts.length < 2) return "";
+  return parts[parts.length - 1].toLowerCase();
+}
+
+/**
+ * Splits filename into:
+ * - base name
+ * - extension
  *
- * For folders:
- * - add file
- * - rename
- * - delete
- *
- * For files:
- * - rename
- * - delete
+ * Example:
+ * app.html => { base: "app", ext: "html" }
+ */
+function splitFileName(fileName: string) {
+  const lastDotIndex = fileName.lastIndexOf(".");
+  if (lastDotIndex <= 0) {
+    return { base: fileName, ext: "" };
+  }
+
+  return {
+    base: fileName.slice(0, lastDotIndex),
+    ext: fileName.slice(lastDotIndex + 1),
+  };
+}
+
+/**
+ * Extension-aware icon and tone.
+ * This makes files feel more like a real editor.
+ */
+function getFileMeta(fileName: string) {
+  const ext = getExtension(fileName);
+
+  switch (ext) {
+    case "html":
+      return {
+        icon: FileCode2,
+        iconClass: "text-orange-500",
+        badgeClass: "text-orange-500/80",
+      };
+
+    case "css":
+      return {
+        icon: FileCode2,
+        iconClass: "text-sky-500",
+        badgeClass: "text-sky-500/80",
+      };
+
+    case "js":
+      return {
+        icon: FileCode2,
+        iconClass: "text-yellow-500",
+        badgeClass: "text-yellow-500/80",
+      };
+
+    case "ts":
+      return {
+        icon: FileCode2,
+        iconClass: "text-blue-500",
+        badgeClass: "text-blue-500/80",
+      };
+
+    case "json":
+      return {
+        icon: FileJson2,
+        iconClass: "text-emerald-500",
+        badgeClass: "text-emerald-500/80",
+      };
+
+    case "md":
+    case "txt":
+      return {
+        icon: FileText,
+        iconClass: "text-muted-foreground",
+        badgeClass: "text-muted-foreground",
+      };
+
+    default:
+      return {
+        icon: FileCode2,
+        iconClass: "text-muted-foreground",
+        badgeClass: "text-muted-foreground",
+      };
+  }
+}
+
+/**
+ * Small action buttons shown on row hover.
  */
 function ExplorerActions({
   nodeId,
@@ -81,15 +167,15 @@ function ExplorerActions({
   onDeleteNode: (nodeId: string) => void;
 }) {
   return (
-    <div className="ml-auto flex items-center gap-1">
+    <div className="ml-auto flex items-center gap-1 opacity-0 transition-opacity duration-200 group-hover:opacity-100">
       {isFolder && onCreateFile && (
         <button
           onClick={(e) => {
             e.stopPropagation();
             onCreateFile(nodeId);
           }}
-          className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-transparent text-muted-foreground transition hover:border-primary/30 hover:bg-primary/10 hover:text-primary"
-          title="Add file inside folder"
+          className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-transparent text-muted-foreground transition hover:border-primary/20 hover:bg-primary/10 hover:text-primary"
+          title="New file"
         >
           <FilePlus2 className="h-3.5 w-3.5" />
         </button>
@@ -100,7 +186,7 @@ function ExplorerActions({
           e.stopPropagation();
           onRenameNode(nodeId);
         }}
-        className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-transparent text-muted-foreground transition hover:border-primary/30 hover:bg-primary/10 hover:text-primary"
+        className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-transparent text-muted-foreground transition hover:border-primary/20 hover:bg-primary/10 hover:text-primary"
         title="Rename"
       >
         <Pencil className="h-3.5 w-3.5" />
@@ -111,7 +197,7 @@ function ExplorerActions({
           e.stopPropagation();
           onDeleteNode(nodeId);
         }}
-        className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-transparent text-muted-foreground transition hover:border-destructive/30 hover:bg-destructive/10 hover:text-destructive"
+        className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-transparent text-muted-foreground transition hover:border-destructive/20 hover:bg-destructive/10 hover:text-destructive"
         title="Delete"
       >
         <Trash2 className="h-3.5 w-3.5" />
@@ -121,11 +207,7 @@ function ExplorerActions({
 }
 
 /**
- * Recursive tree node renderer.
- *
- * Handles both:
- * - file nodes
- * - folder nodes
+ * Recursive tree node
  */
 function TreeNode({
   node,
@@ -141,44 +223,50 @@ function TreeNode({
 }: TreeNodeProps) {
   const [expanded, setExpanded] = useState(true);
 
-  /**
-   * FILE UI
-   *
-   * Changes made:
-   * - slightly smaller text
-   * - more indentation
-   * - softer styling so it feels like a child row
-   */
   if (node.type === "file") {
     const active = node.id === activeFileId;
+    const { base, ext } = splitFileName(node.name);
+    const fileMeta = getFileMeta(node.name);
+    const FileIcon = fileMeta.icon;
 
     return (
       <div
-        className={`group flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left font-mono text-[13px] transition ${
+        className={`group relative flex w-full items-center rounded-xl transition ${
           active
-            ? "bg-primary/12 text-primary"
-            : "text-foreground/80 hover:bg-muted/50"
+            ? "bg-primary/10 ring-1 ring-primary/15"
+            : "hover:bg-muted/60"
         }`}
         style={{
-          /**
-           * Extra left padding makes file appear like a true child
-           * under the folder.
-           */
-          paddingLeft: collapsed ? "8px" : `${level * 16 + 20}px`,
+          paddingLeft: collapsed ? "8px" : `${level * 16 + 14}px`,
         }}
         title={collapsed ? node.name : undefined}
       >
-        {/* Small left guide mark for child file */}
-        {!collapsed && <div className="h-4 w-[2px] rounded-full bg-border/70" />}
+        {!collapsed && (
+          <div className="absolute left-0 top-1/2 h-5 w-[2px] -translate-y-1/2 rounded-full bg-border/70" />
+        )}
 
         <button
           onClick={() => onOpenFile(node.id)}
-          className={`flex min-w-0 flex-1 items-center ${
-            collapsed ? "justify-center" : "gap-2 text-left"
+          className={`flex min-w-0 flex-1 items-center rounded-xl px-3 py-2 text-left ${
+            collapsed ? "justify-center" : "gap-2.5"
           }`}
         >
-          <FileCode2 className="h-3.5 w-3.5 shrink-0" />
-          {!collapsed && <span className="truncate">{node.name}</span>}
+          <FileIcon className={`h-4 w-4 shrink-0 ${fileMeta.iconClass}`} />
+
+          {!collapsed && (
+            <div className="min-w-0 flex-1 font-mono text-[13px]">
+              <span
+                className={`truncate ${
+                  active ? "text-primary" : "text-foreground"
+                }`}
+              >
+                {base}
+              </span>
+              {ext && (
+                <span className={`truncate ${fileMeta.badgeClass}`}>.{ext}</span>
+              )}
+            </div>
+          )}
         </button>
 
         {!collapsed && (
@@ -192,27 +280,19 @@ function TreeNode({
     );
   }
 
-  /**
-   * FOLDER UI
-   *
-   * Folder row stays clean:
-   * - arrow
-   * - folder icon
-   * - folder name
-   * - add file / rename / delete on right
-   */
   const selected = node.id === selectedFolderId;
+  const FolderIcon = expanded && !collapsed ? FolderOpen : Folder;
 
   return (
     <div className="space-y-1">
       <div
-        className={`group flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left font-mono text-sm transition ${
+        className={`group flex w-full items-center rounded-xl transition ${
           selected
-            ? "bg-primary/10 text-primary"
-            : "text-foreground hover:bg-muted/60"
+            ? "bg-primary/10 ring-1 ring-primary/15"
+            : "hover:bg-muted/60"
         }`}
         style={{
-          paddingLeft: collapsed ? "8px" : `${level * 14 + 8}px`,
+          paddingLeft: collapsed ? "8px" : `${level * 14 + 6}px`,
         }}
         title={collapsed ? node.name : undefined}
       >
@@ -223,19 +303,32 @@ function TreeNode({
             }
             onSelectFolder(node.id);
           }}
-          className={`flex min-w-0 flex-1 items-center ${
-            collapsed ? "justify-center" : "gap-2 text-left"
+          className={`flex min-w-0 flex-1 items-center rounded-xl px-3 py-2 text-left ${
+            collapsed ? "justify-center" : "gap-2.5"
           }`}
         >
           {!collapsed &&
             (expanded ? (
-              <ChevronDown className="h-4 w-4 shrink-0" />
+              <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground" />
             ) : (
-              <ChevronRight className="h-4 w-4 shrink-0" />
+              <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground" />
             ))}
 
-          <Folder className="h-4 w-4 shrink-0" />
-          {!collapsed && <span className="truncate">{node.name}</span>}
+          <FolderIcon
+            className={`h-4 w-4 shrink-0 ${
+              selected ? "text-primary" : "text-amber-500"
+            }`}
+          />
+
+          {!collapsed && (
+            <span
+              className={`truncate font-mono text-[13px] ${
+                selected ? "text-primary" : "text-foreground"
+              }`}
+            >
+              {node.name}
+            </span>
+          )}
         </button>
 
         {!collapsed && (
@@ -249,24 +342,32 @@ function TreeNode({
         )}
       </div>
 
-      {/* Render children only when expanded and not collapsed */}
       {!collapsed && expanded && (
         <div className="space-y-1">
-          {node.children.map((child) => (
-            <TreeNode
-              key={child.id}
-              node={child}
-              level={level + 1}
-              selectedFolderId={selectedFolderId}
-              activeFileId={activeFileId}
-              collapsed={collapsed}
-              onSelectFolder={onSelectFolder}
-              onOpenFile={onOpenFile}
-              onCreateFile={onCreateFile}
-              onRenameNode={onRenameNode}
-              onDeleteNode={onDeleteNode}
-            />
-          ))}
+          {node.children.length === 0 ? (
+            <div
+              className="px-3 py-1.5 text-[11px] italic text-muted-foreground"
+              style={{ paddingLeft: `${(level + 1) * 16 + 26}px` }}
+            >
+              Empty folder
+            </div>
+          ) : (
+            node.children.map((child) => (
+              <TreeNode
+                key={child.id}
+                node={child}
+                level={level + 1}
+                selectedFolderId={selectedFolderId}
+                activeFileId={activeFileId}
+                collapsed={collapsed}
+                onSelectFolder={onSelectFolder}
+                onOpenFile={onOpenFile}
+                onCreateFile={onCreateFile}
+                onRenameNode={onRenameNode}
+                onDeleteNode={onDeleteNode}
+              />
+            ))
+          )}
         </div>
       )}
     </div>
@@ -290,109 +391,114 @@ export default function FileExplorer({
   onProfileClick,
   userPhotoURL,
 }: FileExplorerProps) {
+  const totalFolders = useMemo(
+    () => tree.filter((node) => node.type === "folder").length,
+    [tree]
+  );
+
   return (
     <>
-      {/* Mobile overlay behind sidebar */}
       {mobileOpen && (
         <button
           onClick={onCloseMobile}
-          className="fixed inset-0 z-40 bg-black/60 backdrop-blur-sm lg:hidden"
+          className="fixed inset-0 z-40 bg-black/50 backdrop-blur-sm lg:hidden"
           aria-label="Close explorer overlay"
         />
       )}
 
       <aside
-        className={`fixed inset-y-0 left-0 z-50 flex h-full shrink-0 flex-col border-r border-border bg-card/95 transition-all duration-300 lg:static lg:z-auto lg:translate-x-0 lg:bg-card/40 ${
+        className={`fixed inset-y-0 left-0 z-50 flex h-full shrink-0 flex-col border-r border-border bg-card/95 shadow-xl transition-all duration-300 lg:static lg:z-auto lg:translate-x-0 lg:bg-card/60 lg:shadow-none ${
           mobileOpen ? "translate-x-0" : "-translate-x-full"
-        } ${collapsed ? "w-[72px]" : "w-[300px]"}`}
+        } ${collapsed ? "w-[76px]" : "w-[320px]"}`}
       >
         {/* Header */}
-        <div className="flex items-center justify-between border-b border-border px-4 py-4">
-          <div className={collapsed ? "hidden" : "block"}>
-            <h2 className="mt-1 font-mono text-sm font-semibold text-foreground">
-              Judge-Compilo
-            </h2>
-          </div>
-
-          <div
-            className={`flex items-center gap-2 ${
-              collapsed ? "w-full justify-center" : ""
-            }`}
-          >
-            {/* Desktop collapse/expand */}
-            <button
-              onClick={onToggleCollapse}
-              className="hidden h-9 w-9 items-center justify-center rounded-lg border border-border bg-background transition hover:border-primary hover:text-primary lg:inline-flex"
-              title={collapsed ? "Expand explorer" : "Collapse explorer"}
-            >
-              {collapsed ? (
-                <PanelLeftOpen className="h-4 w-4" />
-              ) : (
-                <PanelLeftClose className="h-4 w-4" />
-              )}
-            </button>
-
-            {/* Profile button when expanded */}
+        <div className="border-b border-border px-4 py-4">
+          <div className="flex items-center justify-between">
             {!collapsed && (
-              <button
-                onClick={onProfileClick}
-                className="inline-flex h-9 w-9 items-center justify-center overflow-hidden rounded-full border border-border bg-background transition hover:border-primary"
-                title="Profile"
-              >
-                {userPhotoURL ? (
-                  <img
-                    src={userPhotoURL}
-                    alt="Profile"
-                    referrerPolicy="no-referrer"
-                    className="h-full w-full object-cover"
-                  />
-                ) : (
-                  <UserCircle2 className="h-5 w-5 text-muted-foreground" />
-                )}
-              </button>
+              <div className="min-w-0">
+                <h2 className="truncate font-mono text-base font-semibold text-foreground">
+                  Judge-Compilo
+                </h2>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Workspace Explorer
+                </p>
+              </div>
             )}
 
-            {/* Close button for mobile */}
-            <button
-              onClick={onCloseMobile}
-              className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-border bg-background transition hover:border-primary hover:text-primary lg:hidden"
+            <div
+              className={`flex items-center gap-2 ${
+                collapsed ? "w-full justify-center" : ""
+              }`}
             >
-              <X className="h-4 w-4" />
-            </button>
+              <button
+                onClick={onToggleCollapse}
+                className="hidden h-10 w-10 items-center justify-center rounded-xl border border-border bg-background transition hover:border-primary/30 hover:bg-primary/5 hover:text-primary lg:inline-flex"
+                title={collapsed ? "Expand explorer" : "Collapse explorer"}
+              >
+                {collapsed ? (
+                  <PanelLeftOpen className="h-4 w-4" />
+                ) : (
+                  <PanelLeftClose className="h-4 w-4" />
+                )}
+              </button>
+
+              {!collapsed && (
+                <button
+                  onClick={onProfileClick}
+                  className="inline-flex h-10 w-10 items-center justify-center overflow-hidden rounded-full border border-border bg-background transition hover:border-primary/30"
+                  title="Profile"
+                >
+                  {userPhotoURL ? (
+                    <img
+                      src={userPhotoURL}
+                      alt="Profile"
+                      referrerPolicy="no-referrer"
+                      className="h-full w-full object-cover"
+                    />
+                  ) : (
+                    <UserCircle2 className="h-5 w-5 text-muted-foreground" />
+                  )}
+                </button>
+              )}
+
+              <button
+                onClick={onCloseMobile}
+                className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-border bg-background transition hover:border-primary/30 hover:text-primary lg:hidden"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
           </div>
         </div>
 
-        {/* Top toolbar in expanded mode */}
         {!collapsed && (
           <div className="border-b border-border px-4 py-4">
-            <div className="flex items-center justify-between">
-              <div className="rounded-xl border border-primary/20 bg-primary/5 px-3 py-2">
-                <p className="font-mono text-[11px] uppercase tracking-[0.24em] text-primary">
+            <div className="flex items-center justify-between gap-3">
+              <div className="min-w-0 rounded-2xl border border-primary/20 bg-primary/5 px-4 py-2">
+                <p className="font-mono text-[11px] uppercase tracking-[0.22em] text-primary">
                   Project Folders
+                </p>
+                <p className="mt-1 text-[11px] text-muted-foreground">
+                  {totalFolders} folder{totalFolders !== 1 ? "s" : ""}
                 </p>
               </div>
 
-              {/* Keep only create folder here.
-                  Create file is now per-folder. */}
-              <div className="ml-3 flex items-center gap-2">
-                <button
-                  onClick={onCreateFolder}
-                  className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-border bg-background transition hover:border-primary hover:text-primary"
-                  title="Create folder"
-                >
-                  <FolderPlus className="h-4 w-4" />
-                </button>
-              </div>
+              <button
+                onClick={onCreateFolder}
+                className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-border bg-background transition hover:border-primary/30 hover:bg-primary/5 hover:text-primary"
+                title="Create folder"
+              >
+                <FolderPlus className="h-4 w-4" />
+              </button>
             </div>
           </div>
         )}
 
-        {/* Collapsed mode */}
         {collapsed ? (
           <div className="flex flex-1 flex-col items-center gap-2 overflow-y-auto px-2 py-3">
             <button
               onClick={onProfileClick}
-              className="inline-flex h-10 w-10 items-center justify-center overflow-hidden rounded-full border border-border bg-background transition hover:border-primary"
+              className="inline-flex h-10 w-10 items-center justify-center overflow-hidden rounded-full border border-border bg-background transition hover:border-primary/30"
               title="Profile"
             >
               {userPhotoURL ? (
@@ -408,13 +514,13 @@ export default function FileExplorer({
 
             <button
               onClick={onCreateFolder}
-              className="inline-flex h-10 w-10 items-center justify-center rounded-lg border border-border bg-background transition hover:border-primary hover:text-primary"
+              className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-border bg-background transition hover:border-primary/30 hover:bg-primary/5 hover:text-primary"
               title="Create folder"
             >
               <FolderPlus className="h-4 w-4" />
             </button>
 
-            <div className="mt-2 w-full space-y-1">
+            <div className="mt-3 w-full space-y-1">
               {tree.map((node) => (
                 <TreeNode
                   key={node.id}
@@ -432,22 +538,42 @@ export default function FileExplorer({
             </div>
           </div>
         ) : (
-          /* Expanded mode */
-          <div className="flex-1 space-y-1 overflow-y-auto px-3 py-3">
-            {tree.map((node) => (
-              <TreeNode
-                key={node.id}
-                node={node}
-                selectedFolderId={selectedFolderId}
-                activeFileId={activeFileId}
-                collapsed={collapsed}
-                onSelectFolder={onSelectFolder}
-                onOpenFile={onOpenFile}
-                onCreateFile={onCreateFile}
-                onRenameNode={onRenameNode}
-                onDeleteNode={onDeleteNode}
-              />
-            ))}
+          <div className="flex-1 overflow-y-auto px-3 py-3">
+            {tree.length === 0 ? (
+              <div className="flex h-full flex-col items-center justify-center rounded-2xl border border-dashed border-border px-6 text-center">
+                <FolderOpen className="h-8 w-8 text-muted-foreground" />
+                <h3 className="mt-3 font-medium text-foreground">
+                  No folders yet
+                </h3>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  Create your first project folder to get started.
+                </p>
+                <button
+                  onClick={onCreateFolder}
+                  className="mt-4 inline-flex items-center gap-2 rounded-xl border border-border bg-background px-4 py-2 text-sm transition hover:border-primary/30 hover:bg-primary/5 hover:text-primary"
+                >
+                  <FolderPlus className="h-4 w-4" />
+                  Create Folder
+                </button>
+              </div>
+            ) : (
+              <div className="space-y-1.5">
+                {tree.map((node) => (
+                  <TreeNode
+                    key={node.id}
+                    node={node}
+                    selectedFolderId={selectedFolderId}
+                    activeFileId={activeFileId}
+                    collapsed={collapsed}
+                    onSelectFolder={onSelectFolder}
+                    onOpenFile={onOpenFile}
+                    onCreateFile={onCreateFile}
+                    onRenameNode={onRenameNode}
+                    onDeleteNode={onDeleteNode}
+                  />
+                ))}
+              </div>
+            )}
           </div>
         )}
       </aside>

@@ -1,18 +1,32 @@
-import { Download, Menu, Moon, Play, Save, Sun } from "lucide-react";
+import {
+  Download,
+  Menu,
+  Moon,
+  Play,
+  Save,
+  Sun,
+  ExternalLink,
+} from "lucide-react";
 import { useEffect, useState } from "react";
 
 type TopbarProps = {
   isRunning: boolean;
+  showPreviewButton?: boolean;
+  disableRun?: boolean;
   onSave: () => void;
   onRun: () => void;
+  onPreviewHtml?: () => void;
   onDownload: () => void;
   onToggleExplorer: () => void;
 };
 
 export default function Topbar({
   isRunning,
+  showPreviewButton = false,
+  disableRun = false,
   onSave,
   onRun,
+  onPreviewHtml,
   onDownload,
   onToggleExplorer,
 }: TopbarProps) {
@@ -26,7 +40,9 @@ export default function Topbar({
    */
   useEffect(() => {
     const savedTheme = localStorage.getItem("judge-compilo-theme");
-    const prefersDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
+    const prefersDark = window.matchMedia(
+      "(prefers-color-scheme: dark)"
+    ).matches;
 
     const shouldUseDark = savedTheme
       ? savedTheme === "dark"
@@ -85,18 +101,34 @@ export default function Topbar({
             <span className="hidden sm:inline">Download</span>
           </button>
 
+          {showPreviewButton && onPreviewHtml && (
+            <button
+              onClick={onPreviewHtml}
+              className="inline-flex h-10 items-center gap-2 rounded-xl border border-border bg-background px-3 font-mono text-sm transition hover:border-primary hover:text-primary"
+              title="Open web preview in a new tab"
+            >
+              <ExternalLink className="h-4 w-4" />
+              <span className="hidden sm:inline">Preview</span>
+            </button>
+          )}
+
           <button
             onClick={toggleTheme}
             className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-border bg-background transition hover:border-primary hover:text-primary"
             title={isDark ? "Switch to light mode" : "Switch to dark mode"}
           >
-            {isDark ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
+            {isDark ? (
+              <Sun className="h-4 w-4" />
+            ) : (
+              <Moon className="h-4 w-4" />
+            )}
           </button>
 
           <button
             onClick={onRun}
-            disabled={isRunning}
+            disabled={isRunning || disableRun}
             className="inline-flex h-10 items-center gap-2 rounded-xl bg-primary px-4 font-mono text-sm font-semibold text-primary-foreground shadow-lg shadow-primary/20 transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
+            title={disableRun ? "This file type uses Preview instead of Run" : "Run code"}
           >
             <Play className="h-4 w-4" />
             {isRunning ? "Running..." : "Run"}
