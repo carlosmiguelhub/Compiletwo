@@ -5,7 +5,9 @@ export type Judge0LanguageKey =
   | "java"
   | "c"
   | "cpp"
-  | "csharp";
+  | "csharp"
+  | "php"
+  | "sql";
 
 export type RunCodeParams = {
   sourceCode: string;
@@ -21,6 +23,14 @@ export type RunCodeResult = {
   status: string;
 };
 
+/**
+ * Judge0 language IDs.
+ *
+ * These IDs tell Judge0 which runtime/compiler to use.
+ * We are adding:
+ * - php
+ * - sql
+ */
 const languageIdMap: Record<Judge0LanguageKey, number> = {
   javascript: 63,
   typescript: 74,
@@ -29,10 +39,15 @@ const languageIdMap: Record<Judge0LanguageKey, number> = {
   c: 50,
   cpp: 54,
   csharp: 51,
+  php: 98,
+  sql: 82,
 };
 
 const JUDGE0_BASE_URL = "https://judge0-ce.p.rapidapi.com";
 
+/**
+ * Sends code to Judge0 and waits for the result.
+ */
 export async function runCode({
   sourceCode,
   language,

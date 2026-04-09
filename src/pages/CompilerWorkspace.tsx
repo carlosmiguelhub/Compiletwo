@@ -18,6 +18,7 @@ export type CompilerLanguage =
   | "c"
   | "cpp"
   | "csharp"
+  | "php"
   | "sql"
   | "html";
 
@@ -53,6 +54,7 @@ const languageOptions: CompilerLanguage[] = [
   "c",
   "cpp",
   "csharp",
+  "php",
   "sql",
   "html",
 ];
@@ -111,6 +113,9 @@ class Program
         Console.WriteLine("Hello from Judge-Compilo");
     }
 }
+`,
+  php: `<?php
+echo "Hello from Judge-Compilo";
 `,
   sql: `SELECT 'Hello from Judge-Compilo' AS message;
 `,
@@ -397,6 +402,7 @@ function formatLanguageLabel(language: CompilerLanguage) {
     c: "C",
     cpp: "C++",
     csharp: "C#",
+    php: "PHP",
     sql: "SQL",
     html: "HTML",
   };
@@ -649,15 +655,19 @@ export default function CompilerWorkspace() {
     setNameInput("");
   };
 
-  /**
-   * Opens create-file dialog.
-   */
-  const openCreateFileDialog = () => {
-    setDialogMode("create-file");
-    setTargetNodeId(null);
-    setNameInput("");
-    setNewFileLanguage(language);
-  };
+ /**
+ * Opens create-file dialog.
+ *
+ * If a folder id is provided, we remember that folder
+ * so the new file is created inside the clicked folder.
+ * If not provided, we fall back to the currently selected folder.
+ */
+const openCreateFileDialog = (folderId?: string) => {
+  setDialogMode("create-file");
+  setTargetNodeId(folderId ?? selectedFolderId);
+  setNameInput("");
+  setNewFileLanguage(language);
+};
 
   /**
    * Opens rename dialog for a selected node.
@@ -817,20 +827,24 @@ export default function CompilerWorkspace() {
   const handleRun = async () => {
     if (!activeFile || isRunning) return;
 
-    if (activeFile.language === "html" || activeFile.language === "sql") {
-      setBottomTab("problems");
-      setProblems([
-        `${formatLanguageLabel(
-          activeFile.language
-        )} execution is not connected yet.`,
-        "HTML preview and SQL result/table rendering will be added later.",
-      ]);
-      setOutput((prev) => [
-        ...prev,
-        `[${new Date().toLocaleTimeString()}] Run blocked for ${activeFile.name}.`,
-      ]);
-      return;
-    }
+      /**
+   * HTML is not executed by Judge0.
+   * We still block HTML here until you add preview mode later.
+   *
+   * SQL is now allowed to run through Judge0.
+   */
+  if (activeFile.language === "html") {
+    setBottomTab("problems");
+    setProblems([
+      "HTML execution is not connected to Judge0.",
+      "HTML preview will be added later.",
+    ]);
+    setOutput((prev) => [
+      ...prev,
+      `[${new Date().toLocaleTimeString()}] Run blocked for ${activeFile.name}.`,
+    ]);
+    return;
+  }
 
     setBottomTab("output");
     setIsRunning(true);
@@ -846,9 +860,13 @@ export default function CompilerWorkspace() {
     ]);
 
     try {
+            /**
+       * At this point, HTML has already been blocked above,
+       * so this cast is safe for Judge0-supported languages.
+       */
       const result = await runCode({
         sourceCode: activeFile.content,
-        language: activeFile.language,
+        language: activeFile.language as Exclude<CompilerLanguage, "html">,
         stdin,
       });
 
@@ -918,35 +936,42 @@ export default function CompilerWorkspace() {
       return;
     }
 
-    /**
-     * CREATE FILE
-     */
-    if (dialogMode === "create-file") {
-      const trimmed = nameInput.trim();
-      if (!trimmed) return;
+ /**
+ * CREATE FILE
+ */
+if (dialogMode === "create-file") {
+  const trimmed = nameInput.trim();
+  if (!trimmed) return;
 
-      const folderId = selectedFolderId || getFirstFolderId(projectTree);
-      if (!folderId) return;
+  /**
+   * Use the folder remembered when the create-file dialog was opened.
+   * If none was stored, fall back to the selected folder.
+   * If selected folder is empty/missing, fall back to the first folder found.
+   */
+  const folderId =
+    targetNodeId || selectedFolderId || getFirstFolderId(projectTree);
 
-      const newFile = createFile(
-        `file-${Date.now()}`,
-        trimmed,
-        newFileLanguage
-      );
+  if (!folderId) return;
 
-      setProjectTree((prev) => addNodeToFolder(prev, folderId, newFile));
-      setOpenFileIds((prev) => [...prev, newFile.id]);
-      setActiveFileId(newFile.id);
-      setLanguage(newFile.language);
+  const newFile = createFile(
+    `file-${Date.now()}`,
+    trimmed,
+    newFileLanguage
+  );
 
-      setUnsavedFileIds((prev) =>
-        prev.includes(newFile.id) ? prev : [...prev, newFile.id]
-      );
+  setProjectTree((prev) => addNodeToFolder(prev, folderId, newFile));
+  setOpenFileIds((prev) => [...prev, newFile.id]);
+  setActiveFileId(newFile.id);
+  setLanguage(newFile.language);
 
-      appendLog(`Created file "${newFile.name}".`);
-      closeDialog();
-      return;
-    }
+  setUnsavedFileIds((prev) =>
+    prev.includes(newFile.id) ? prev : [...prev, newFile.id]
+  );
+
+  appendLog(`Created file "${newFile.name}".`);
+  closeDialog();
+  return;
+}
 
     /**
      * RENAME NODE

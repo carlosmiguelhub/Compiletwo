@@ -13,6 +13,16 @@ type TopbarProps = {
   onToggleExplorer: () => void;
 };
 
+/**
+ * Language list for the topbar.
+ *
+ * NOTE:
+ * Right now this array is not being rendered in the UI yet,
+ * because there is no <select> in the returned JSX.
+ *
+ * I am still adding PHP here so this file stays aligned
+ * with CompilerWorkspace and Judge0 service.
+ */
 const languages: { label: string; value: CompilerLanguage }[] = [
   { label: "Java", value: "java" },
   { label: "JavaScript", value: "javascript" },
@@ -21,6 +31,7 @@ const languages: { label: string; value: CompilerLanguage }[] = [
   { label: "C", value: "c" },
   { label: "C++", value: "cpp" },
   { label: "C#", value: "csharp" },
+  { label: "PHP", value: "php" },
   { label: "SQL", value: "sql" },
   { label: "HTML", value: "html" },
 ];
@@ -36,9 +47,16 @@ export default function Topbar({
 }: TopbarProps) {
   const [isDark, setIsDark] = useState(false);
 
+  /**
+   * On first load:
+   * - check saved theme
+   * - fall back to system/browser preference
+   * - apply dark class to the document
+   */
   useEffect(() => {
     const savedTheme = localStorage.getItem("judge-compilo-theme");
     const prefersDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
+
     const shouldUseDark = savedTheme
       ? savedTheme === "dark"
       : document.documentElement.classList.contains("dark") || prefersDark;
@@ -47,6 +65,10 @@ export default function Topbar({
     setIsDark(shouldUseDark);
   }, []);
 
+  /**
+   * Toggle between dark and light mode
+   * and persist the choice in localStorage.
+   */
   const toggleTheme = () => {
     const nextIsDark = !isDark;
     document.documentElement.classList.toggle("dark", nextIsDark);
@@ -71,9 +93,13 @@ export default function Topbar({
           </div>
 
           <div className="min-w-0">
-            <p className="truncate font-mono ">
+            <p className="truncate font-mono">
               Code Workspace
             </p>
+
+            {/*
+              You can restore this later if you want the active file name shown.
+            */}
             {/* <h1 className="truncate font-mono text-base font-semibold">
               {activeFileName}
             </h1> */}
@@ -81,18 +107,6 @@ export default function Topbar({
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
-          {/* <select
-            value={language}
-            onChange={(e) => onLanguageChange(e.target.value as CompilerLanguage)}
-            className="h-10 rounded-xl border border-border bg-background px-3 font-mono text-sm outline-none transition focus:border-primary"
-          >
-            {languages.map((item) => (
-              <option key={item.value} value={item.value}>
-                {item.label}
-              </option>
-            ))}
-          </select> */}
-
           <button
             onClick={onSave}
             className="inline-flex h-10 items-center gap-2 rounded-xl border border-border bg-background px-3 font-mono text-sm transition hover:border-primary hover:text-primary"
@@ -117,14 +131,14 @@ export default function Topbar({
             {isDark ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
           </button>
 
-         <button
-  onClick={onRun}
-  disabled={isRunning}
-  className="inline-flex h-10 items-center gap-2 rounded-xl bg-primary px-4 font-mono text-sm font-semibold text-primary-foreground shadow-lg shadow-primary/20 transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
->
-  <Play className="h-4 w-4" />
-  {isRunning ? "Running..." : "Run"}
-</button>
+          <button
+            onClick={onRun}
+            disabled={isRunning}
+            className="inline-flex h-10 items-center gap-2 rounded-xl bg-primary px-4 font-mono text-sm font-semibold text-primary-foreground shadow-lg shadow-primary/20 transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            <Play className="h-4 w-4" />
+            {isRunning ? "Running..." : "Run"}
+          </button>
         </div>
       </div>
     </div>

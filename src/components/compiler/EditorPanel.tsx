@@ -25,6 +25,8 @@ function mapLanguage(language: CompilerLanguage) {
       return "java";
     case "c":
       return "c";
+    case "php":
+      return "php";
     case "sql":
       return "sql";
     case "html":
@@ -33,7 +35,6 @@ function mapLanguage(language: CompilerLanguage) {
       return "plaintext";
   }
 }
-
 export default function EditorPanel({
   fileName,
   language,
@@ -68,8 +69,8 @@ export default function EditorPanel({
           <div className="font-mono text-[10px] uppercase tracking-[0.2em] text-muted-foreground sm:text-xs">
             Editor
           </div>
-          <div className="truncate font-mono text-[10px] text-primary sm:text-xs overflow-x: auto">
-            {fileName || "No file selected"}
+<div className="truncate font-mono text-[10px] text-primary sm:text-xs overflow-x-auto">
+              {fileName || "No file selected"}
           </div>
         </div>
 
