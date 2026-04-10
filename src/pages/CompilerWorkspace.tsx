@@ -9,6 +9,8 @@ import { onAuthStateChanged, type User as FirebaseUser } from "firebase/auth";
 import { auth } from "../firebase/config";
 import { runCode } from "../lib/judge0Service";
 import { loadWorkspace, saveWorkspace } from "../lib/workspaceService";
+import { runSql } from "../lib/sqlRunner";
+
 
 export type CompilerLanguage =
   | "javascript"
@@ -550,6 +552,22 @@ export default function CompilerWorkspace() {
   const [explorerCollapsed, setExplorerCollapsed] = useState(false);
   const [sidebarPhotoURL, setSidebarPhotoURL] = useState<string | null>(null);
   const [isRunning, setIsRunning] = useState(false);
+  const [hasSqlResult, setHasSqlResult] = useState(false);
+  /**
+ * SQL result viewer state.
+ *
+ * sqlRows:
+ * Stores row-based results from SELECT queries.
+ *
+ * sqlMetaMessage:
+ * Stores execution summaries for SQL queries.
+ *
+ * sqlResultOpen:
+ * Controls the centered SQL results modal.
+ */
+const [sqlRows, setSqlRows] = useState<Record<string, any>[]>([]);
+const [sqlMetaMessage, setSqlMetaMessage] = useState("");
+const [sqlResultOpen, setSqlResultOpen] = useState(false);
 
   /**
    * Auth + workspace hydration states.
@@ -581,6 +599,8 @@ export default function CompilerWorkspace() {
     defaultWorkspace.selectedFolderId
   );
 
+  
+
 /**
  * Bottom terminal tabs.
  * Preview is handled in a new browser tab for HTML files.
@@ -599,6 +619,7 @@ const [stdin, setStdin] = useState("");
   const [newFileLanguage, setNewFileLanguage] =
     useState<CompilerLanguage>("java");
   const [mobileExplorerOpen, setMobileExplorerOpen] = useState(false);
+  
 
   /**
    * Appends logs to the output terminal panel.
@@ -606,6 +627,25 @@ const [stdin, setStdin] = useState("");
   const appendLog = (message: string) => {
     setOutput((prev) => [...prev, message]);
   };
+
+  /**
+ * Closes the SQL results modal when the Escape key is pressed.
+ */
+useEffect(() => {
+  if (!sqlResultOpen) return;
+
+  const handleKeyDown = (event: KeyboardEvent) => {
+    if (event.key === "Escape") {
+      setSqlResultOpen(false);
+    }
+  };
+
+  window.addEventListener("keydown", handleKeyDown);
+
+  return () => {
+    window.removeEventListener("keydown", handleKeyDown);
+  };
+}, [sqlResultOpen]);
 
   /**
    * Auth listener:
@@ -927,8 +967,63 @@ const openCreateFileDialog = (folderId?: string) => {
     setOutput([`[${new Date().toLocaleTimeString()}] Output cleared.`]);
   };
 
+  const showShowTablesButton =
+  activeFile?.type === "file" && activeFile.language === "sql";
 
+/**
+ * SQL result table helpers.
+ *
+ * showSqlResultsButton:
+ * Only show the topbar SQL Results button when the active file is SQL
+ * and there are rows available to preview.
+ *
+ * sqlColumns:
+ * Uses the first row to determine visible table columns.
+ */
+const showSqlResultsButton =
+  activeFile?.type === "file" &&
+  activeFile.language === "sql" &&
+  hasSqlResult;
 
+const sqlColumns = sqlRows.length > 0 ? Object.keys(sqlRows[0]) : [];
+
+const handleShowTables = async () => {
+  if (!currentUser?.uid) {
+    setProblems(["You must be logged in to view SQL tables."]);
+    setBottomTab("problems");
+    return;
+  }
+
+  try {
+    setIsRunning(true);
+    setBottomTab("output");
+
+    setOutput((prev) => [
+      ...prev,
+      `[${new Date().toLocaleTimeString()}] Loading tables from your SQL sandbox...`,
+    ]);
+
+    const result = await runSql("SHOW TABLES", currentUser.uid);
+
+    setSqlRows(Array.isArray(result) ? result : []);
+    setSqlMetaMessage(
+      Array.isArray(result)
+        ? `Found ${result.length} table(s) in your sandbox.`
+        : "Tables loaded successfully."
+    );
+    setHasSqlResult(true);
+    setSqlResultOpen(true);
+    setProblems(["No problems detected."]);
+  } catch (error) {
+    const message =
+      error instanceof Error ? error.message : "Failed to load tables.";
+
+    setProblems([message]);
+    setBottomTab("problems");
+  } finally {
+    setIsRunning(false);
+  }
+};
 
 /**
  * Opens the active HTML file in a new browser tab.
@@ -995,21 +1090,21 @@ const handleRun = async () => {
   if (!activeFile || isRunning) return;
 
   /**
-   * HTML does not run through Judge0.
+   * HTML and CSS do not run through Judge0.
    * Users should use the Preview button instead.
    */
   if (activeFile.language === "html" || activeFile.language === "css") {
-  setProblems([
-    `${formatLanguageLabel(activeFile.language)} does not run through Judge0.`,
-    "Use the Preview button from an HTML file to open it in a new tab.",
-  ]);
-  setBottomTab("problems");
-  setOutput((prev) => [
-    ...prev,
-    `[${new Date().toLocaleTimeString()}] Run blocked for ${activeFile.name}. Use Preview instead.`,
-  ]);
-  return;
-}
+    setProblems([
+      `${formatLanguageLabel(activeFile.language)} does not run through Judge0.`,
+      "Use the Preview button from an HTML file to open it in a new tab.",
+    ]);
+    setBottomTab("problems");
+    setOutput((prev) => [
+      ...prev,
+      `[${new Date().toLocaleTimeString()}] Run blocked for ${activeFile.name}. Use Preview instead.`,
+    ]);
+    return;
+  }
 
   setBottomTab("output");
   setIsRunning(true);
@@ -1026,12 +1121,57 @@ const handleRun = async () => {
 
   try {
     /**
-     * At this point, HTML has already been excluded above,
+     * SQL runs through your backend, not Judge0.
+     */
+ if (activeFile.language === "sql") {
+  if (!currentUser?.uid) {
+    throw new Error("You must be logged in to use SQL sandbox.");
+  }
+
+if (!currentUser?.uid) {
+  throw new Error("You must be logged in to use SQL sandbox.");
+}
+
+const result = await runSql(activeFile.content, currentUser.uid);
+  setSqlRows(Array.isArray(result) ? result : []);
+  setSqlMetaMessage(
+    Array.isArray(result)
+      ? `Returned ${result.length} row(s).`
+      : "Query executed successfully."
+  );
+  setSqlResultOpen(false);
+  setHasSqlResult(true);
+  setProblems(["No problems detected."]);
+
+  setOutput((prev) => [
+    ...prev,
+    `[${new Date().toLocaleTimeString()}] SQL executed successfully.`,
+    Array.isArray(result)
+      ? `[${new Date().toLocaleTimeString()}] Returned ${result.length} row(s).`
+      : `[${new Date().toLocaleTimeString()}] Query executed successfully.`,
+  ]);
+
+  return;
+}
+
+    /**
+     * HTML/CSS already excluded above,
      * so this cast is safe for Judge0-supported languages.
      */
+
+    /**
+ * Clear old SQL table data when running non-SQL files
+ * so stale results do not remain available in the UI.
+ */
+
+setSqlRows([]);
+setSqlMetaMessage("");
+setSqlResultOpen(false);
+setHasSqlResult(false);
+
     const result = await runCode({
       sourceCode: activeFile.content,
-      language: activeFile.language as Exclude<CompilerLanguage, "html" | "css">,
+      language: activeFile.language as Exclude<CompilerLanguage, "html" | "css" | "sql">,
       stdin,
     });
 
@@ -1055,6 +1195,10 @@ const handleRun = async () => {
   } catch (error) {
     const message =
       error instanceof Error ? error.message : "Unknown error occurred.";
+     setSqlRows([]);
+setSqlMetaMessage("");
+setSqlResultOpen(false);
+setHasSqlResult(false);
 
     setProblems([message]);
     setBottomTab("problems");
@@ -1266,15 +1410,19 @@ const nextName =
         />
 
         <div className="flex min-w-0 flex-1 flex-col">
-  <Topbar
+<Topbar
   isRunning={isRunning}
   showPreviewButton={activeFile?.language === "html"}
+  showSqlResultsButton={showSqlResultsButton}
+  showShowTablesButton={showShowTablesButton}
   disableRun={
     activeFile?.language === "html" || activeFile?.language === "css"
   }
   onSave={handleSave}
   onRun={handleRun}
   onPreviewHtml={handlePreviewHtml}
+  onOpenSqlResults={() => setSqlResultOpen(true)}
+  onShowTables={handleShowTables}
   onDownload={handleDownloadFile}
   onToggleExplorer={() => setMobileExplorerOpen(true)}
 />
@@ -1354,6 +1502,101 @@ const nextName =
           </div>
         </div>
       </div>
+
+{sqlResultOpen && (
+  <div
+    className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-4 backdrop-blur-sm"
+    onClick={() => setSqlResultOpen(false)}
+  >
+    <div
+      className="flex h-[85vh] w-full max-w-6xl flex-col overflow-hidden rounded-2xl border border-border bg-card shadow-2xl shadow-primary/10"
+      onClick={(e) => e.stopPropagation()}
+    >
+      <div className="flex items-start justify-between gap-4 border-b border-border px-6 py-4">
+        <div>
+          <p className="font-mono text-xs uppercase tracking-[0.28em] text-primary">
+            Judge-Compilo
+          </p>
+          <h3 className="mt-2 font-mono text-xl font-semibold text-foreground">
+            SQL Results
+          </h3>
+          <p className="mt-1 text-sm text-muted-foreground">
+            {sqlMetaMessage || "Result preview"}
+          </p>
+        </div>
+
+        <button
+          onClick={() => setSqlResultOpen(false)}
+          className="rounded-xl border border-border bg-background px-4 py-2 font-mono text-sm transition hover:border-primary hover:text-primary"
+        >
+          Close
+        </button>
+      </div>
+
+      <div className="min-h-0 flex-1 overflow-auto px-6 py-5">
+        {sqlRows.length === 0 ? (
+          <div className="flex min-h-[220px] items-center justify-center rounded-xl border border-dashed border-border bg-background/70 px-6 py-8 text-center">
+            <div>
+              <p className="font-mono text-sm text-foreground">
+                No row data available.
+              </p>
+              <p className="mt-2 text-sm text-muted-foreground">
+                This query returned 0 rows, so there is nothing to preview in the table.
+              </p>
+            </div>
+          </div>
+        ) : (
+          <div className="overflow-x-auto rounded-xl border border-border bg-background">
+            <table className="min-w-full border-collapse font-mono text-sm">
+              <thead className="sticky top-0 z-10 bg-card/95 backdrop-blur">
+                <tr>
+                  {sqlColumns.map((column) => (
+                    <th
+                      key={column}
+                      className="border-b border-border px-4 py-3 text-left font-mono text-xs uppercase tracking-[0.2em] text-muted-foreground"
+                    >
+                      {column}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+
+              <tbody>
+                {sqlRows.map((row, rowIndex) => (
+                  <tr
+                    key={rowIndex}
+                    className="border-b border-border/70 transition hover:bg-primary/5 odd:bg-background even:bg-background/40 last:border-b-0"
+                  >
+                    {sqlColumns.map((column) => {
+                      const value = row[column];
+
+                      return (
+                        <td
+                          key={`${rowIndex}-${column}`}
+                          className="px-4 py-3 align-top text-foreground whitespace-pre-wrap break-words"
+                        >
+                          {value === null ? (
+                            <span className="inline-flex rounded-md border border-border bg-card px-2 py-1 text-xs uppercase tracking-wide text-muted-foreground">
+                              NULL
+                            </span>
+                          ) : typeof value === "object" ? (
+                            JSON.stringify(value)
+                          ) : (
+                            String(value)
+                          )}
+                        </td>
+                      );
+                    })}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+    </div>
+  </div>
+)}
 
       {dialogMode && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-4 backdrop-blur-sm">

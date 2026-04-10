@@ -12,21 +12,30 @@ import { useEffect, useState } from "react";
 type TopbarProps = {
   isRunning: boolean;
   showPreviewButton?: boolean;
+  showSqlResultsButton?: boolean;
+  showShowTablesButton?: boolean;
   disableRun?: boolean;
   onSave: () => void;
   onRun: () => void;
   onPreviewHtml?: () => void;
+  onOpenSqlResults?: () => void;
+  onShowTables?: () => void;
   onDownload: () => void;
   onToggleExplorer: () => void;
 };
 
+
 export default function Topbar({
   isRunning,
   showPreviewButton = false,
+  showSqlResultsButton = false,
+  showShowTablesButton = false,
   disableRun = false,
   onSave,
   onRun,
   onPreviewHtml,
+  onOpenSqlResults,
+  onShowTables,
   onDownload,
   onToggleExplorer,
 }: TopbarProps) {
@@ -109,6 +118,27 @@ export default function Topbar({
             >
               <ExternalLink className="h-4 w-4" />
               <span className="hidden sm:inline">Preview</span>
+            </button>
+          )}
+          {showShowTablesButton && onShowTables && (
+  <button
+    onClick={onShowTables}
+    className="inline-flex h-10 items-center gap-2 rounded-xl border border-border bg-background px-3 font-mono text-sm transition hover:border-primary hover:text-primary"
+    title="Show tables in your SQL sandbox"
+  >
+    <ExternalLink className="h-4 w-4" />
+    <span className="hidden sm:inline">Tables</span>
+  </button>
+)}
+
+          {showSqlResultsButton && onOpenSqlResults && (
+            <button
+              onClick={onOpenSqlResults}
+              className="inline-flex h-10 items-center gap-2 rounded-xl border border-border bg-background px-3 font-mono text-sm transition hover:border-primary hover:text-primary"
+              title="Open SQL results"
+            >
+              <ExternalLink className="h-4 w-4" />
+              <span className="hidden sm:inline">Results</span>
             </button>
           )}
 
