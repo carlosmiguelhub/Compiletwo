@@ -11,7 +11,6 @@ import { runCode } from "../lib/judge0Service";
 import { loadWorkspace, saveWorkspace } from "../lib/workspaceService";
 import { runSql } from "../lib/sqlRunner";
 
-
 export type CompilerLanguage =
   | "javascript"
   | "typescript"
@@ -61,6 +60,42 @@ const languageOptions: CompilerLanguage[] = [
   "sql",
   "html",
   "css",
+];
+
+/**
+ * Backend URL used for Java GUI sandbox calls.
+ *
+ * Uses Vite env first if available.
+ * Falls back to localhost backend during development.
+ */
+const BACKEND_URL =
+  import.meta.env.VITE_BACKEND_URL || "http://localhost:5000";
+
+/**
+ * Java GUI detection hints.
+ *
+ * If any of these appear in a Java file,
+ * we treat the file as a Swing/AWT GUI app
+ * and run it through the Java GUI backend route.
+ */
+const JAVA_GUI_HINTS = [
+  "javax.swing",
+  "java.awt",
+  "SwingUtilities",
+  "JFrame",
+  "JPanel",
+  "JButton",
+  "JLabel",
+  "JTextField",
+  "JTextArea",
+  "JCheckBox",
+  "JRadioButton",
+  "JComboBox",
+  "JTable",
+  "JScrollPane",
+  "JDialog",
+  "JOptionPane",
+  "setVisible(true)",
 ];
 
 /**
@@ -214,10 +249,21 @@ function buildPreviewDocument(
 
   return nextHtml;
 }
+
+/**
+ * Returns true if the Java source looks like Swing/AWT GUI code.
+ */
+function isJavaGuiSource(code: string): boolean {
+  const normalized = code.toLowerCase();
+
+  return JAVA_GUI_HINTS.some((hint) =>
+    normalized.includes(hint.toLowerCase())
+  );
+}
+
 /**
  * Creates a file node with starter content.
  */
-
 function getExtensionByLanguage(language: CompilerLanguage): string {
   const map: Record<CompilerLanguage, string> = {
     javascript: "js",
@@ -294,29 +340,7 @@ function createFile(
  * or users with no saved workspace yet.
  */
 function createDefaultProjectTree(): ExplorerNode[] {
-  return [
-    {
-      id: "folder-1",
-      name: "my-project",
-      type: "folder",
-      children: [
-        createFile("file-1", "main.js", "javascript"),
-        createFile("file-2", "utils.py", "python"),
-        createFile("file-3", "app.java", "java"),
-        createFile("file-4", "query.sql", "sql"),
-      ],
-    },
-    {
-      id: "folder-2",
-      name: "snippets",
-      type: "folder",
-      children: [
-        createFile("file-5", "index.html", "html"),
-        createFile("file-6", "styles.css", "css"),
-        createFile("file-7", "script.js", "javascript"),
-      ],
-    },
-  ];
+  return [];
 }
 
 /**
@@ -326,16 +350,19 @@ function createDefaultProjectTree(): ExplorerNode[] {
 function createDefaultWorkspace() {
   return {
     tree: createDefaultProjectTree(),
-    openFileIds: ["file-3"],
-    activeFileId: "file-3",
-    selectedFolderId: "folder-1",
+    openFileIds: [],
+    activeFileId: "",
+    selectedFolderId: "",
   };
 }
 
 /**
  * Searches the whole tree and returns a file by id.
  */
-function findFileById(nodes: ExplorerNode[], fileId: string): ExplorerFile | null {
+function findFileById(
+  nodes: ExplorerNode[],
+  fileId: string
+): ExplorerFile | null {
   for (const node of nodes) {
     if (node.type === "file" && node.id === fileId) return node;
     if (node.type === "folder") {
@@ -349,7 +376,10 @@ function findFileById(nodes: ExplorerNode[], fileId: string): ExplorerFile | nul
 /**
  * Searches the whole tree and returns any node by id.
  */
-function findNodeById(nodes: ExplorerNode[], nodeId: string): ExplorerNode | null {
+function findNodeById(
+  nodes: ExplorerNode[],
+  nodeId: string
+): ExplorerNode | null {
   for (const node of nodes) {
     if (node.id === nodeId) return node;
     if (node.type === "folder") {
@@ -394,11 +424,6 @@ function updateFileContent(
     return node;
   });
 }
-
-/**
- * Updates a file's language inside the tree.
- */
-
 
 /**
  * Adds a new node inside a selected folder.
@@ -553,33 +578,38 @@ export default function CompilerWorkspace() {
   const [sidebarPhotoURL, setSidebarPhotoURL] = useState<string | null>(null);
   const [isRunning, setIsRunning] = useState(false);
   const [hasSqlResult, setHasSqlResult] = useState(false);
+
   /**
- * SQL result viewer state.
- *
- * sqlRows:
- * Stores row-based results from SELECT queries.
- *
- * sqlMetaMessage:
- * Stores execution summaries for SQL queries.
- *
- * sqlResultOpen:
- * Controls the centered SQL results modal.
- */
-const [sqlRows, setSqlRows] = useState<Record<string, any>[]>([]);
-const [sqlMetaMessage, setSqlMetaMessage] = useState("");
-const [sqlResultOpen, setSqlResultOpen] = useState(false);
+   * SQL result viewer state.
+   *
+   * sqlRows:
+   * Stores row-based results from SELECT queries.
+   *
+   * sqlMetaMessage:
+   * Stores execution summaries for SQL queries.
+   *
+   * sqlResultOpen:
+   * Controls the centered SQL results modal.
+   */
+  const [sqlRows, setSqlRows] = useState<Record<string, any>[]>([]);
+  const [sqlMetaMessage, setSqlMetaMessage] = useState("");
+  const [sqlResultOpen, setSqlResultOpen] = useState(false);
+
+  /**
+   * Java GUI session state.
+   *
+   * javaGuiPreviewUrl:
+   * Stores the noVNC preview URL returned by the backend.
+   *
+   * javaGuiContainerName:
+   * Tracks the running Docker container so we can stop it before reruns.
+   */
+  const [javaGuiPreviewUrl, setJavaGuiPreviewUrl] = useState("");
+  const [javaGuiContainerName, setJavaGuiContainerName] = useState("");
+  const [javaGuiModalOpen, setJavaGuiModalOpen] = useState(false);
 
   /**
    * Auth + workspace hydration states.
-   *
-   * currentUser:
-   * The logged-in Firebase user.
-   *
-   * workspaceReady:
-   * True when initial workspace load is done.
-   *
-   * isHydratingWorkspace:
-   * Prevents autosave from firing while Firestore data is still loading.
    */
   const [currentUser, setCurrentUser] = useState<FirebaseUser | null>(null);
   const [workspaceReady, setWorkspaceReady] = useState(false);
@@ -592,21 +622,27 @@ const [sqlResultOpen, setSqlResultOpen] = useState(false);
    *
    * These are now persisted in Firestore.
    */
-  const [projectTree, setProjectTree] = useState<ExplorerNode[]>(defaultWorkspace.tree);
-  const [openFileIds, setOpenFileIds] = useState<string[]>(defaultWorkspace.openFileIds);
-  const [activeFileId, setActiveFileId] = useState<string>(defaultWorkspace.activeFileId);
+  const [projectTree, setProjectTree] = useState<ExplorerNode[]>(
+    defaultWorkspace.tree
+  );
+  const [openFileIds, setOpenFileIds] = useState<string[]>(
+    defaultWorkspace.openFileIds
+  );
+  const [activeFileId, setActiveFileId] = useState<string>(
+    defaultWorkspace.activeFileId
+  );
   const [selectedFolderId, setSelectedFolderId] = useState<string>(
     defaultWorkspace.selectedFolderId
   );
 
-  
-
-/**
- * Bottom terminal tabs.
- * Preview is handled in a new browser tab for HTML files.
- */
-const [bottomTab, setBottomTab] = useState<"output" | "problems" | "input">("output");
-const [stdin, setStdin] = useState("");
+  /**
+   * Bottom terminal tabs.
+   * Preview is handled in a new browser tab for HTML files.
+   */
+ const [bottomTab, setBottomTab] = useState<"output" | "problems" | "input" | "preview">(
+  "output"
+);
+  const [stdin, setStdin] = useState("");
   const [output, setOutput] = useState<string[]>([
     "[4:10:19 AM] Workspace ready.",
     "Program output will appear here when Judge0 is connected.",
@@ -619,7 +655,6 @@ const [stdin, setStdin] = useState("");
   const [newFileLanguage, setNewFileLanguage] =
     useState<CompilerLanguage>("java");
   const [mobileExplorerOpen, setMobileExplorerOpen] = useState(false);
-  
 
   /**
    * Appends logs to the output terminal panel.
@@ -629,23 +664,56 @@ const [stdin, setStdin] = useState("");
   };
 
   /**
- * Closes the SQL results modal when the Escape key is pressed.
- */
-useEffect(() => {
-  if (!sqlResultOpen) return;
+   * Stops the currently tracked Java GUI session.
+   *
+   * Safe to call even if there is no session running.
+   */
+  const stopJavaGuiSession = async (containerName?: string) => {
+    const targetName = containerName || javaGuiContainerName;
+    if (!targetName) return;
 
-  const handleKeyDown = (event: KeyboardEvent) => {
-    if (event.key === "Escape") {
-      setSqlResultOpen(false);
+    try {
+      await fetch(
+        `${BACKEND_URL}/api/java-gui/stop/${encodeURIComponent(targetName)}`,
+        {
+          method: "DELETE",
+        }
+      );
+    } catch (error) {
+      console.error("Failed to stop Java GUI session:", error);
     }
   };
 
-  window.addEventListener("keydown", handleKeyDown);
+  /**
+   * Closes the SQL results modal when the Escape key is pressed.
+   */
+  useEffect(() => {
+    if (!sqlResultOpen) return;
 
-  return () => {
-    window.removeEventListener("keydown", handleKeyDown);
-  };
-}, [sqlResultOpen]);
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setSqlResultOpen(false);
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [sqlResultOpen]);
+
+  /**
+   * Cleanup any running Java GUI container when the workspace unmounts
+   * or when a newer container replaces the previous one.
+   */
+  useEffect(() => {
+    return () => {
+      if (javaGuiContainerName) {
+        void stopJavaGuiSession(javaGuiContainerName);
+      }
+    };
+  }, [javaGuiContainerName]);
 
   /**
    * Auth listener:
@@ -666,8 +734,6 @@ useEffect(() => {
           setIsHydratingWorkspace(false);
           return;
         }
-
-        
 
         const googlePhoto =
           currentUser.providerData.find(
@@ -824,21 +890,22 @@ useEffect(() => {
     setNameInput("");
   };
 
- /**
- * Opens create-file dialog.
- *
- * If a folder id is provided, we remember that folder
- * so the new file is created inside the clicked folder.
- * If not provided, we fall back to the currently selected folder.
- */
-const openCreateFileDialog = (folderId?: string) => {
-  const initialLanguage = language;
+  /**
+   * Opens create-file dialog.
+   *
+   * If a folder id is provided, we remember that folder
+   * so the new file is created inside the clicked folder.
+   * If not provided, we fall back to the currently selected folder.
+   */
+  const openCreateFileDialog = (folderId?: string) => {
+    const initialLanguage = language;
 
-  setDialogMode("create-file");
-  setTargetNodeId(folderId ?? selectedFolderId);
-  setNewFileLanguage(initialLanguage);
-  setNameInput(getDefaultFileName(initialLanguage));
-};
+    setDialogMode("create-file");
+    setTargetNodeId(folderId ?? selectedFolderId);
+    setNewFileLanguage(initialLanguage);
+    setNameInput(getDefaultFileName(initialLanguage));
+  };
+
   /**
    * Opens rename dialog for a selected node.
    */
@@ -968,249 +1035,326 @@ const openCreateFileDialog = (folderId?: string) => {
   };
 
   const showShowTablesButton =
-  activeFile?.type === "file" && activeFile.language === "sql";
-
-/**
- * SQL result table helpers.
- *
- * showSqlResultsButton:
- * Only show the topbar SQL Results button when the active file is SQL
- * and there are rows available to preview.
- *
- * sqlColumns:
- * Uses the first row to determine visible table columns.
- */
-const showSqlResultsButton =
-  activeFile?.type === "file" &&
-  activeFile.language === "sql" &&
-  hasSqlResult;
-
-const sqlColumns = sqlRows.length > 0 ? Object.keys(sqlRows[0]) : [];
-
-const handleShowTables = async () => {
-  if (!currentUser?.uid) {
-    setProblems(["You must be logged in to view SQL tables."]);
-    setBottomTab("problems");
-    return;
-  }
-
-  try {
-    setIsRunning(true);
-    setBottomTab("output");
-
-    setOutput((prev) => [
-      ...prev,
-      `[${new Date().toLocaleTimeString()}] Loading tables from your SQL sandbox...`,
-    ]);
-
-    const result = await runSql("SHOW TABLES", currentUser.uid);
-
-    setSqlRows(Array.isArray(result) ? result : []);
-    setSqlMetaMessage(
-      Array.isArray(result)
-        ? `Found ${result.length} table(s) in your sandbox.`
-        : "Tables loaded successfully."
-    );
-    setHasSqlResult(true);
-    setSqlResultOpen(true);
-    setProblems(["No problems detected."]);
-  } catch (error) {
-    const message =
-      error instanceof Error ? error.message : "Failed to load tables.";
-
-    setProblems([message]);
-    setBottomTab("problems");
-  } finally {
-    setIsRunning(false);
-  }
-};
-
-/**
- * Opens the active HTML file in a new browser tab.
- * This is used instead of rendering HTML inside the terminal panel.
- */
-const handlePreviewHtml = () => {
-  if (!activeFile || activeFile.language !== "html") return;
-
-  const parentFolder = findParentFolderOfFile(projectTree, activeFile.id);
-
-  const siblingFiles =
-    parentFolder?.children.filter(
-      (child): child is ExplorerFile =>
-        child.type === "file" && child.id !== activeFile.id
-    ) ?? [];
-
-  const cssFiles = siblingFiles.filter(
-    (file) => file.language === "css" || file.name.toLowerCase().endsWith(".css")
-  );
-
-  const jsFiles = siblingFiles.filter(
-    (file) =>
-      file.language === "javascript" || file.name.toLowerCase().endsWith(".js")
-  );
-
-  const previewHtml = buildPreviewDocument(
-    activeFile.content,
-    cssFiles.map((file) => file.content),
-    jsFiles.map((file) => file.content)
-  );
-
-  const previewWindow = window.open("", "_blank");
-
-  if (!previewWindow) {
-    setProblems([
-      "Preview popup was blocked by the browser.",
-      "Allow popups for this site and try again.",
-    ]);
-    setBottomTab("problems");
-    return;
-  }
-
-  previewWindow.document.open();
-  previewWindow.document.write(previewHtml);
-  previewWindow.document.close();
-
-  setOutput((prev) => [
-    ...prev,
-    `[${new Date().toLocaleTimeString()}] Opened preview for ${activeFile.name}.`,
-    `[${new Date().toLocaleTimeString()}] Included ${cssFiles.length} CSS file(s) and ${jsFiles.length} JS file(s) from the same folder.`,
-  ]);
-};
-
-
-
-/**
- * Runs the current file using Judge0 service.
- *
- * Special case:
- * - HTML does not run through Judge0.
- * - Instead, it is rendered in the Preview tab.
- */
-const handleRun = async () => {
-  if (!activeFile || isRunning) return;
+    activeFile?.type === "file" && activeFile.language === "sql";
 
   /**
-   * HTML and CSS do not run through Judge0.
-   * Users should use the Preview button instead.
+   * SQL result table helpers.
+   *
+   * showSqlResultsButton:
+   * Only show the topbar SQL Results button when the active file is SQL
+   * and there are rows available to preview.
+   *
+   * sqlColumns:
+   * Uses the first row to determine visible table columns.
    */
-  if (activeFile.language === "html" || activeFile.language === "css") {
-    setProblems([
-      `${formatLanguageLabel(activeFile.language)} does not run through Judge0.`,
-      "Use the Preview button from an HTML file to open it in a new tab.",
-    ]);
-    setBottomTab("problems");
+  const showSqlResultsButton =
+    activeFile?.type === "file" &&
+    activeFile.language === "sql" &&
+    hasSqlResult;
+
+  const sqlColumns = sqlRows.length > 0 ? Object.keys(sqlRows[0]) : [];
+
+  const handleShowTables = async () => {
+    if (!currentUser?.uid) {
+      setProblems(["You must be logged in to view SQL tables."]);
+      setBottomTab("problems");
+      return;
+    }
+
+    try {
+      setIsRunning(true);
+      setBottomTab("output");
+
+      setOutput((prev) => [
+        ...prev,
+        `[${new Date().toLocaleTimeString()}] Loading tables from your SQL sandbox...`,
+      ]);
+
+      const result = await runSql("SHOW TABLES", currentUser.uid);
+
+      setSqlRows(Array.isArray(result) ? result : []);
+      setSqlMetaMessage(
+        Array.isArray(result)
+          ? `Found ${result.length} table(s) in your sandbox.`
+          : "Tables loaded successfully."
+      );
+      setHasSqlResult(true);
+      setSqlResultOpen(true);
+      setProblems(["No problems detected."]);
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "Failed to load tables.";
+
+      setProblems([message]);
+      setBottomTab("problems");
+    } finally {
+      setIsRunning(false);
+    }
+  };
+
+  /**
+   * Opens the active HTML file in a new browser tab.
+   * This is used instead of rendering HTML inside the terminal panel.
+   */
+  const handlePreviewHtml = () => {
+    if (!activeFile || activeFile.language !== "html") return;
+
+    const parentFolder = findParentFolderOfFile(projectTree, activeFile.id);
+
+    const siblingFiles =
+      parentFolder?.children.filter(
+        (child): child is ExplorerFile =>
+          child.type === "file" && child.id !== activeFile.id
+      ) ?? [];
+
+    const cssFiles = siblingFiles.filter(
+      (file) => file.language === "css" || file.name.toLowerCase().endsWith(".css")
+    );
+
+    const jsFiles = siblingFiles.filter(
+      (file) =>
+        file.language === "javascript" || file.name.toLowerCase().endsWith(".js")
+    );
+
+    const previewHtml = buildPreviewDocument(
+      activeFile.content,
+      cssFiles.map((file) => file.content),
+      jsFiles.map((file) => file.content)
+    );
+
+    const previewWindow = window.open("", "_blank");
+
+    if (!previewWindow) {
+      setProblems([
+        "Preview popup was blocked by the browser.",
+        "Allow popups for this site and try again.",
+      ]);
+      setBottomTab("problems");
+      return;
+    }
+
+    previewWindow.document.open();
+    previewWindow.document.write(previewHtml);
+    previewWindow.document.close();
+
     setOutput((prev) => [
       ...prev,
-      `[${new Date().toLocaleTimeString()}] Run blocked for ${activeFile.name}. Use Preview instead.`,
+      `[${new Date().toLocaleTimeString()}] Opened preview for ${activeFile.name}.`,
+      `[${new Date().toLocaleTimeString()}] Included ${cssFiles.length} CSS file(s) and ${jsFiles.length} JS file(s) from the same folder.`,
     ]);
-    return;
-  }
+  };
 
+  /**
+   * Runs the active Java file through the Java GUI backend route.
+   *
+   * This is only used for Swing/AWT Java code.
+   * Regular Java console programs still use Judge0 below.
+   */
+const handleRunJavaGui = async (file: ExplorerFile) => {
   setBottomTab("output");
-  setIsRunning(true);
   setProblems([]);
+  setIsRunning(true);
 
   setOutput([
-    `[${new Date().toLocaleTimeString()}] Running ${activeFile.name} (${formatLanguageLabel(
-      activeFile.language
-    )})...`,
-    stdin.trim()
-      ? `[${new Date().toLocaleTimeString()}] Standard input detected.`
-      : `[${new Date().toLocaleTimeString()}] No standard input provided.`,
+    `[${new Date().toLocaleTimeString()}] Running ${file.name} as Java GUI...`,
+    `[${new Date().toLocaleTimeString()}] Starting sandbox container and noVNC preview...`,
   ]);
 
   try {
-    /**
-     * SQL runs through your backend, not Judge0.
-     */
- if (activeFile.language === "sql") {
-  if (!currentUser?.uid) {
-    throw new Error("You must be logged in to use SQL sandbox.");
-  }
+    if (javaGuiContainerName) {
+      await stopJavaGuiSession(javaGuiContainerName);
+      await new Promise((resolve) => setTimeout(resolve, 500));
+    }
 
-if (!currentUser?.uid) {
-  throw new Error("You must be logged in to use SQL sandbox.");
-}
+    setJavaGuiPreviewUrl("");
+    setJavaGuiContainerName("");
 
-const result = await runSql(activeFile.content, currentUser.uid);
-  setSqlRows(Array.isArray(result) ? result : []);
-  setSqlMetaMessage(
-    Array.isArray(result)
-      ? `Returned ${result.length} row(s).`
-      : "Query executed successfully."
-  );
-  setSqlResultOpen(false);
-  setHasSqlResult(true);
-  setProblems(["No problems detected."]);
-
-  setOutput((prev) => [
-    ...prev,
-    `[${new Date().toLocaleTimeString()}] SQL executed successfully.`,
-    Array.isArray(result)
-      ? `[${new Date().toLocaleTimeString()}] Returned ${result.length} row(s).`
-      : `[${new Date().toLocaleTimeString()}] Query executed successfully.`,
-  ]);
-
-  return;
-}
-
-    /**
-     * HTML/CSS already excluded above,
-     * so this cast is safe for Judge0-supported languages.
-     */
-
-    /**
- * Clear old SQL table data when running non-SQL files
- * so stale results do not remain available in the UI.
- */
-
-setSqlRows([]);
-setSqlMetaMessage("");
-setSqlResultOpen(false);
-setHasSqlResult(false);
-
-    const result = await runCode({
-      sourceCode: activeFile.content,
-      language: activeFile.language as Exclude<CompilerLanguage, "html" | "css" | "sql">,
-      stdin,
+    const response = await fetch(`${BACKEND_URL}/api/java-gui/run`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        code: file.content,
+      }),
     });
 
-    const nextProblems: string[] = [];
+    const data = await response.json();
 
-    if (result.compileOutput) nextProblems.push(result.compileOutput);
-    if (result.stderr) nextProblems.push(result.stderr);
-    if (result.message) nextProblems.push(result.message);
+    if (!response.ok || !data.success) {
+      throw new Error(data.error || "Failed to run Java GUI.");
+    }
 
-    setProblems(
-      nextProblems.length > 0 ? nextProblems : ["No problems detected."]
-    );
+    /**
+     * Put the 3 lines HERE.
+     * This locks the frontend to the known working preview endpoint.
+     */
+    setJavaGuiPreviewUrl(data.previewUrl);
+    setJavaGuiContainerName(data.containerName);
+    setBottomTab("preview");
+
+    setProblems(["No problems detected."]);
 
     setOutput((prev) => [
       ...prev,
-      `[${new Date().toLocaleTimeString()}] Status: ${result.status}`,
-      result.stdout
-        ? result.stdout
-        : `[${new Date().toLocaleTimeString()}] Program finished with no stdout.`,
+      `[${new Date().toLocaleTimeString()}] Java GUI container started successfully.`,
+      `[${new Date().toLocaleTimeString()}] Preview is ready in the Preview tab.`,
     ]);
   } catch (error) {
     const message =
-      error instanceof Error ? error.message : "Unknown error occurred.";
-     setSqlRows([]);
-setSqlMetaMessage("");
-setSqlResultOpen(false);
-setHasSqlResult(false);
+      error instanceof Error ? error.message : "Failed to run Java GUI.";
 
     setProblems([message]);
     setBottomTab("problems");
+    setJavaGuiPreviewUrl("");
+    setJavaGuiContainerName("");
 
     setOutput((prev) => [
       ...prev,
-      `[${new Date().toLocaleTimeString()}] Run failed for ${activeFile.name}.`,
+      `[${new Date().toLocaleTimeString()}] Java GUI run failed for ${file.name}.`,
     ]);
   } finally {
     setIsRunning(false);
   }
 };
+
+  /**
+   * Runs the current file using Judge0 service.
+   *
+   * Special cases:
+   * - HTML/CSS do not run through Judge0.
+   * - SQL runs through your backend.
+   * - Java Swing/AWT GUI runs through the Java GUI backend.
+   */
+  const handleRun = async () => {
+    if (!activeFile || isRunning) return;
+
+    /**
+     * HTML and CSS do not run through Judge0.
+     * Users should use the Preview button instead.
+     */
+    if (activeFile.language === "html" || activeFile.language === "css") {
+      setProblems([
+        `${formatLanguageLabel(activeFile.language)} does not run through Judge0.`,
+        "Use the Preview button from an HTML file to open it in a new tab.",
+      ]);
+      setBottomTab("problems");
+      setOutput((prev) => [
+        ...prev,
+        `[${new Date().toLocaleTimeString()}] Run blocked for ${activeFile.name}. Use Preview instead.`,
+      ]);
+      return;
+    }
+
+    /**
+     * Java GUI files run through your Java GUI backend route.
+     * Regular Java console files continue using Judge0.
+     */
+    if (activeFile.language === "java" && isJavaGuiSource(activeFile.content)) {
+      await handleRunJavaGui(activeFile);
+      return;
+    }
+
+    setBottomTab("output");
+    setIsRunning(true);
+    setProblems([]);
+
+    setOutput([
+      `[${new Date().toLocaleTimeString()}] Running ${activeFile.name} (${formatLanguageLabel(
+        activeFile.language
+      )})...`,
+      stdin.trim()
+        ? `[${new Date().toLocaleTimeString()}] Standard input detected.`
+        : `[${new Date().toLocaleTimeString()}] No standard input provided.`,
+    ]);
+
+    try {
+      /**
+       * SQL runs through your backend, not Judge0.
+       */
+      if (activeFile.language === "sql") {
+        if (!currentUser?.uid) {
+          throw new Error("You must be logged in to use SQL sandbox.");
+        }
+
+        const result = await runSql(activeFile.content, currentUser.uid);
+
+        setSqlRows(Array.isArray(result) ? result : []);
+        setSqlMetaMessage(
+          Array.isArray(result)
+            ? `Returned ${result.length} row(s).`
+            : "Query executed successfully."
+        );
+        setSqlResultOpen(false);
+        setHasSqlResult(true);
+        setProblems(["No problems detected."]);
+
+        setOutput((prev) => [
+          ...prev,
+          `[${new Date().toLocaleTimeString()}] SQL executed successfully.`,
+          Array.isArray(result)
+            ? `[${new Date().toLocaleTimeString()}] Returned ${result.length} row(s).`
+            : `[${new Date().toLocaleTimeString()}] Query executed successfully.`,
+        ]);
+
+        return;
+      }
+
+      /**
+       * Clear old SQL table data when running non-SQL files
+       * so stale results do not remain available in the UI.
+       */
+      setSqlRows([]);
+      setSqlMetaMessage("");
+      setSqlResultOpen(false);
+      setHasSqlResult(false);
+
+      const result = await runCode({
+        sourceCode: activeFile.content,
+        language: activeFile.language as Exclude<
+          CompilerLanguage,
+          "html" | "css" | "sql"
+        >,
+        stdin,
+      });
+
+      const nextProblems: string[] = [];
+
+      if (result.compileOutput) nextProblems.push(result.compileOutput);
+      if (result.stderr) nextProblems.push(result.stderr);
+      if (result.message) nextProblems.push(result.message);
+
+      setProblems(
+        nextProblems.length > 0 ? nextProblems : ["No problems detected."]
+      );
+
+      setOutput((prev) => [
+        ...prev,
+        `[${new Date().toLocaleTimeString()}] Status: ${result.status}`,
+        result.stdout
+          ? result.stdout
+          : `[${new Date().toLocaleTimeString()}] Program finished with no stdout.`,
+      ]);
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "Unknown error occurred.";
+
+      setSqlRows([]);
+      setSqlMetaMessage("");
+      setSqlResultOpen(false);
+      setHasSqlResult(false);
+
+      setProblems([message]);
+      setBottomTab("problems");
+
+      setOutput((prev) => [
+        ...prev,
+        `[${new Date().toLocaleTimeString()}] Run failed for ${activeFile.name}.`,
+      ]);
+    } finally {
+      setIsRunning(false);
+    }
+  };
 
   /**
    * Handles confirmation for create / rename / delete dialogs.
@@ -1237,39 +1381,42 @@ setHasSqlResult(false);
       return;
     }
 
- /**
- * CREATE FILE
- */
-if (dialogMode === "create-file") {
-  const trimmed = nameInput.trim();
-if (!trimmed) return;
+    /**
+     * CREATE FILE
+     */
+    if (dialogMode === "create-file") {
+      const trimmed = nameInput.trim();
+      if (!trimmed) return;
 
-const folderId =
-  targetNodeId || selectedFolderId || getFirstFolderId(projectTree);
+      const folderId =
+        targetNodeId || selectedFolderId || getFirstFolderId(projectTree);
 
-if (!folderId) return;
+      if (!folderId) return;
 
-const finalFileName = ensureFileNameHasExtension(trimmed, newFileLanguage);
+      const finalFileName = ensureFileNameHasExtension(
+        trimmed,
+        newFileLanguage
+      );
 
-const newFile = createFile(
-  `file-${Date.now()}`,
-  finalFileName,
-  newFileLanguage
-);
+      const newFile = createFile(
+        `file-${Date.now()}`,
+        finalFileName,
+        newFileLanguage
+      );
 
-  setProjectTree((prev) => addNodeToFolder(prev, folderId, newFile));
-  setOpenFileIds((prev) => [...prev, newFile.id]);
-  setActiveFileId(newFile.id);
-  setLanguage(newFile.language);
+      setProjectTree((prev) => addNodeToFolder(prev, folderId, newFile));
+      setOpenFileIds((prev) => [...prev, newFile.id]);
+      setActiveFileId(newFile.id);
+      setLanguage(newFile.language);
 
-  setUnsavedFileIds((prev) =>
-    prev.includes(newFile.id) ? prev : [...prev, newFile.id]
-  );
+      setUnsavedFileIds((prev) =>
+        prev.includes(newFile.id) ? prev : [...prev, newFile.id]
+      );
 
-  appendLog(`Created file "${newFile.name}".`);
-  closeDialog();
-  return;
-}
+      appendLog(`Created file "${newFile.name}".`);
+      closeDialog();
+      return;
+    }
 
     /**
      * RENAME NODE
@@ -1278,14 +1425,13 @@ const newFile = createFile(
       const trimmed = nameInput.trim();
       if (!trimmed) return;
 
-const nextName =
-  targetNode.type === "file"
-    ? ensureFileNameHasExtension(trimmed, targetNode.language)
-    : trimmed;
+      const nextName =
+        targetNode.type === "file"
+          ? ensureFileNameHasExtension(trimmed, targetNode.language)
+          : trimmed;
 
       setProjectTree((prev) => renameNodeById(prev, targetNode.id, nextName));
       appendLog(`Renamed "${targetNode.name}" to "${nextName}".`);
-      appendLog(`Renamed "${targetNode.name}" to "${trimmed}".`);
       closeDialog();
       return;
     }
@@ -1296,7 +1442,9 @@ const nextName =
     if (dialogMode === "delete" && targetNode) {
       const deletedFileIds = collectFileIdsFromNode(targetNode);
       const nextTree = deleteNodeById(projectTree, targetNode.id);
-      const nextOpenIds = openFileIds.filter((id) => !deletedFileIds.includes(id));
+      const nextOpenIds = openFileIds.filter(
+        (id) => !deletedFileIds.includes(id)
+      );
       const activeDeleted = deletedFileIds.includes(activeFileId);
 
       setProjectTree(nextTree);
@@ -1410,22 +1558,32 @@ const nextName =
         />
 
         <div className="flex min-w-0 flex-1 flex-col">
-<Topbar
-  isRunning={isRunning}
-  showPreviewButton={activeFile?.language === "html"}
-  showSqlResultsButton={showSqlResultsButton}
-  showShowTablesButton={showShowTablesButton}
-  disableRun={
-    activeFile?.language === "html" || activeFile?.language === "css"
-  }
-  onSave={handleSave}
-  onRun={handleRun}
-  onPreviewHtml={handlePreviewHtml}
-  onOpenSqlResults={() => setSqlResultOpen(true)}
-  onShowTables={handleShowTables}
-  onDownload={handleDownloadFile}
-  onToggleExplorer={() => setMobileExplorerOpen(true)}
-/>
+                      <Topbar
+              isRunning={isRunning}
+              showPreviewButton={activeFile?.language === "html"}
+              showSqlResultsButton={showSqlResultsButton}
+              showShowTablesButton={showShowTablesButton}
+              showJavaGuiButton={
+                activeFile?.language === "java" &&
+                activeFile?.type === "file" &&
+                isJavaGuiSource(activeFile.content)
+              }
+              disableRun={
+                activeFile?.language === "html" || activeFile?.language === "css"
+              }
+              onSave={handleSave}
+              onRun={handleRun}
+              onRunJavaGui={() => {
+                if (activeFile && activeFile.language === "java") {
+                  void handleRunJavaGui(activeFile);
+                }
+              }}
+              onPreviewHtml={handlePreviewHtml}
+              onOpenSqlResults={() => setSqlResultOpen(true)}
+              onShowTables={handleShowTables}
+              onDownload={handleDownloadFile}
+              onToggleExplorer={() => setMobileExplorerOpen(true)}
+            />
 
           <EditorTabs
             files={allFiles.filter((file) => openFileIds.includes(file.id))}
@@ -1463,7 +1621,7 @@ const nextName =
                     New Folder
                   </button>
                   <button
-                  onClick={() => openCreateFileDialog()}
+                    onClick={() => openCreateFileDialog()}
                     className="rounded-xl bg-primary px-4 py-2 font-mono text-sm font-semibold text-primary-foreground transition hover:opacity-90"
                   >
                     New File
@@ -1483,33 +1641,34 @@ const nextName =
           </div>
 
           <div className={`${terminalOpen ? "block" : "hidden"} lg:block`}>
-    <BottomPanel
-  activeTab={bottomTab}
-  output={output}
-  problems={problems}
-  stdin={stdin}
-  onChangeTab={setBottomTab}
-  onStdinChange={setStdin}
-  onClearOutput={handleClearOutput}
-  collapsed={desktopTerminalCollapsed}
-  height={terminalHeight}
-  onToggleCollapse={() =>
-    setDesktopTerminalCollapsed((prev) => !prev)
-  }
-  onResizeStart={handleTerminalResizeStart}
-/>
-
+              <BottomPanel
+              activeTab={bottomTab}
+              output={output}
+              problems={problems}
+              stdin={stdin}
+              hasGuiPreview={Boolean(javaGuiPreviewUrl)}
+              onOpenGuiPreview={() => setJavaGuiModalOpen(true)}
+              onChangeTab={setBottomTab}
+              onStdinChange={setStdin}
+              onClearOutput={handleClearOutput}
+              collapsed={desktopTerminalCollapsed}
+              height={terminalHeight}
+              onToggleCollapse={() =>
+                setDesktopTerminalCollapsed((prev) => !prev)
+              }
+              onResizeStart={handleTerminalResizeStart}
+            />
           </div>
         </div>
       </div>
 
-{sqlResultOpen && (
+      {javaGuiModalOpen && javaGuiPreviewUrl && (
   <div
     className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-4 backdrop-blur-sm"
-    onClick={() => setSqlResultOpen(false)}
+    onClick={() => setJavaGuiModalOpen(false)}
   >
     <div
-      className="flex h-[85vh] w-full max-w-6xl flex-col overflow-hidden rounded-2xl border border-border bg-card shadow-2xl shadow-primary/10"
+      className="flex h-[88vh] w-full max-w-7xl flex-col overflow-hidden rounded-2xl border border-border bg-card shadow-2xl shadow-primary/10"
       onClick={(e) => e.stopPropagation()}
     >
       <div className="flex items-start justify-between gap-4 border-b border-border px-6 py-4">
@@ -1518,85 +1677,137 @@ const nextName =
             Judge-Compilo
           </p>
           <h3 className="mt-2 font-mono text-xl font-semibold text-foreground">
-            SQL Results
+            Java GUI Preview
           </h3>
           <p className="mt-1 text-sm text-muted-foreground">
-            {sqlMetaMessage || "Result preview"}
+            Live sandbox preview powered by noVNC.
           </p>
         </div>
 
-        <button
-          onClick={() => setSqlResultOpen(false)}
-          className="rounded-xl border border-border bg-background px-4 py-2 font-mono text-sm transition hover:border-primary hover:text-primary"
-        >
-          Close
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => window.open(javaGuiPreviewUrl, "_blank")}
+            className="rounded-xl border border-border bg-background px-4 py-2 font-mono text-sm transition hover:border-primary hover:text-primary"
+          >
+            Open in New Tab
+          </button>
+
+          <button
+            onClick={() => setJavaGuiModalOpen(false)}
+            className="rounded-xl border border-border bg-background px-4 py-2 font-mono text-sm transition hover:border-primary hover:text-primary"
+          >
+            Close
+          </button>
+        </div>
       </div>
 
-      <div className="min-h-0 flex-1 overflow-auto px-6 py-5">
-        {sqlRows.length === 0 ? (
-          <div className="flex min-h-[220px] items-center justify-center rounded-xl border border-dashed border-border bg-background/70 px-6 py-8 text-center">
-            <div>
-              <p className="font-mono text-sm text-foreground">
-                No row data available.
-              </p>
-              <p className="mt-2 text-sm text-muted-foreground">
-                This query returned 0 rows, so there is nothing to preview in the table.
-              </p>
-            </div>
-          </div>
-        ) : (
-          <div className="overflow-x-auto rounded-xl border border-border bg-background">
-            <table className="min-w-full border-collapse font-mono text-sm">
-              <thead className="sticky top-0 z-10 bg-card/95 backdrop-blur">
-                <tr>
-                  {sqlColumns.map((column) => (
-                    <th
-                      key={column}
-                      className="border-b border-border px-4 py-3 text-left font-mono text-xs uppercase tracking-[0.2em] text-muted-foreground"
-                    >
-                      {column}
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-
-              <tbody>
-                {sqlRows.map((row, rowIndex) => (
-                  <tr
-                    key={rowIndex}
-                    className="border-b border-border/70 transition hover:bg-primary/5 odd:bg-background even:bg-background/40 last:border-b-0"
-                  >
-                    {sqlColumns.map((column) => {
-                      const value = row[column];
-
-                      return (
-                        <td
-                          key={`${rowIndex}-${column}`}
-                          className="px-4 py-3 align-top text-foreground whitespace-pre-wrap break-words"
-                        >
-                          {value === null ? (
-                            <span className="inline-flex rounded-md border border-border bg-card px-2 py-1 text-xs uppercase tracking-wide text-muted-foreground">
-                              NULL
-                            </span>
-                          ) : typeof value === "object" ? (
-                            JSON.stringify(value)
-                          ) : (
-                            String(value)
-                          )}
-                        </td>
-                      );
-                    })}
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
+      <div className="min-h-0 flex-1 bg-black p-4">
+<iframe
+  key={javaGuiPreviewUrl}
+  src={`${javaGuiPreviewUrl}?autoconnect=1&reconnect=1&resize=remote&_=${Date.now()}`}
+  title="Java GUI Preview"
+  className="h-full w-full rounded-xl border border-border bg-black"
+/>
       </div>
     </div>
   </div>
 )}
+
+      {sqlResultOpen && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-4 backdrop-blur-sm"
+          onClick={() => setSqlResultOpen(false)}
+        >
+          <div
+            className="flex h-[85vh] w-full max-w-6xl flex-col overflow-hidden rounded-2xl border border-border bg-card shadow-2xl shadow-primary/10"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-start justify-between gap-4 border-b border-border px-6 py-4">
+              <div>
+                <p className="font-mono text-xs uppercase tracking-[0.28em] text-primary">
+                  Judge-Compilo
+                </p>
+                <h3 className="mt-2 font-mono text-xl font-semibold text-foreground">
+                  SQL Results
+                </h3>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  {sqlMetaMessage || "Result preview"}
+                </p>
+              </div>
+
+              <button
+                onClick={() => setSqlResultOpen(false)}
+                className="rounded-xl border border-border bg-background px-4 py-2 font-mono text-sm transition hover:border-primary hover:text-primary"
+              >
+                Close
+              </button>
+            </div>
+
+            <div className="min-h-0 flex-1 overflow-auto px-6 py-5">
+              {sqlRows.length === 0 ? (
+                <div className="flex min-h-[220px] items-center justify-center rounded-xl border border-dashed border-border bg-background/70 px-6 py-8 text-center">
+                  <div>
+                    <p className="font-mono text-sm text-foreground">
+                      No row data available.
+                    </p>
+                    <p className="mt-2 text-sm text-muted-foreground">
+                      This query returned 0 rows, so there is nothing to preview
+                      in the table.
+                    </p>
+                  </div>
+                </div>
+              ) : (
+                <div className="overflow-x-auto rounded-xl border border-border bg-background">
+                  <table className="min-w-full border-collapse font-mono text-sm">
+                    <thead className="sticky top-0 z-10 bg-card/95 backdrop-blur">
+                      <tr>
+                        {sqlColumns.map((column) => (
+                          <th
+                            key={column}
+                            className="border-b border-border px-4 py-3 text-left font-mono text-xs uppercase tracking-[0.2em] text-muted-foreground"
+                          >
+                            {column}
+                          </th>
+                        ))}
+                      </tr>
+                    </thead>
+
+                    <tbody>
+                      {sqlRows.map((row, rowIndex) => (
+                        <tr
+                          key={rowIndex}
+                          className="border-b border-border/70 transition hover:bg-primary/5 odd:bg-background even:bg-background/40 last:border-b-0"
+                        >
+                          {sqlColumns.map((column) => {
+                            const value = row[column];
+
+                            return (
+                              <td
+                                key={`${rowIndex}-${column}`}
+                                className="px-4 py-3 align-top text-foreground whitespace-pre-wrap break-words"
+                              >
+                                {value === null ? (
+                                  <span className="inline-flex rounded-md border border-border bg-card px-2 py-1 text-xs uppercase tracking-wide text-muted-foreground">
+                                    NULL
+                                  </span>
+                                ) : typeof value === "object" ? (
+                                  JSON.stringify(value)
+                                ) : (
+                                  String(value)
+                                )}
+                              </td>
+                            );
+                          })}
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
 
       {dialogMode && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-4 backdrop-blur-sm">
@@ -1620,11 +1831,11 @@ const nextName =
                   <input
                     value={nameInput}
                     onChange={(e) => setNameInput(e.target.value)}
-                   placeholder={
-  dialogMode === "create-file"
-    ? getDefaultFileName(newFileLanguage)
-    : "my-project"
-}
+                    placeholder={
+                      dialogMode === "create-file"
+                        ? getDefaultFileName(newFileLanguage)
+                        : "my-project"
+                    }
                     className="h-11 w-full rounded-xl border border-border bg-background px-3 font-mono text-sm outline-none transition focus:border-primary"
                   />
                 </div>
@@ -1637,10 +1848,11 @@ const nextName =
                     <select
                       value={newFileLanguage}
                       onChange={(e) => {
-  const nextLanguage = e.target.value as CompilerLanguage;
-  setNewFileLanguage(nextLanguage);
-  setNameInput(getDefaultFileName(nextLanguage));
-}}
+                        const nextLanguage = e.target
+                          .value as CompilerLanguage;
+                        setNewFileLanguage(nextLanguage);
+                        setNameInput(getDefaultFileName(nextLanguage));
+                      }}
                       className="h-11 w-full rounded-xl border border-border bg-background px-3 font-mono text-sm outline-none transition focus:border-primary"
                     >
                       {languageOptions.map((item) => (

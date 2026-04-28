@@ -43,7 +43,7 @@ const HeroSection = () => {
             <ChevronRight className="h-4 w-4 group-hover:translate-x-1 transition-transform" />
           </button>
           <button className="font-mono border border-border text-foreground px-8 py-3 rounded-md hover:border-primary hover:text-primary transition-all">
-            Browse Classrooms
+            Browse Languages
           </button>
         </div>
 
@@ -59,7 +59,7 @@ const HeroSection = () => {
             <pre className="p-4 font-mono text-sm leading-relaxed overflow-x-auto">
               <code>
                 <span className="text-cyber">def</span> <span className="text-primary">hello_world</span>():
-                {"\n"}    <span className="text-cyber">print</span>(<span className="text-accent">"Hello, CodeForge!"</span>)
+                {"\n"}    <span className="text-cyber">print</span>(<span className="text-accent">"Wazap, Dude!"</span>)
                 {"\n"}
                 {"\n"}<span className="text-muted-foreground"># Run with one click ▶</span>
                 {"\n"}<span className="text-primary">hello_world</span>()
@@ -67,7 +67,7 @@ const HeroSection = () => {
             </pre>
             <div className="border-t border-border px-4 py-2 font-mono text-xs">
               <span className="text-primary">▶ Output:</span>{" "}
-              <span className="text-foreground">Hello, CodeForge!</span>
+              <span className="text-foreground">Hello, Dudez!</span>
             </div>
           </div>
         </div>

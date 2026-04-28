@@ -6,6 +6,7 @@ import {
   Save,
   Sun,
   ExternalLink,
+  MonitorSmartphone,
 } from "lucide-react";
 import { useEffect, useState } from "react";
 
@@ -14,9 +15,11 @@ type TopbarProps = {
   showPreviewButton?: boolean;
   showSqlResultsButton?: boolean;
   showShowTablesButton?: boolean;
+  showJavaGuiButton?: boolean;
   disableRun?: boolean;
   onSave: () => void;
   onRun: () => void;
+  onRunJavaGui?: () => void;
   onPreviewHtml?: () => void;
   onOpenSqlResults?: () => void;
   onShowTables?: () => void;
@@ -24,15 +27,16 @@ type TopbarProps = {
   onToggleExplorer: () => void;
 };
 
-
 export default function Topbar({
   isRunning,
   showPreviewButton = false,
   showSqlResultsButton = false,
   showShowTablesButton = false,
+  showJavaGuiButton = false,
   disableRun = false,
   onSave,
   onRun,
+  onRunJavaGui,
   onPreviewHtml,
   onOpenSqlResults,
   onShowTables,
@@ -120,16 +124,17 @@ export default function Topbar({
               <span className="hidden sm:inline">Preview</span>
             </button>
           )}
+
           {showShowTablesButton && onShowTables && (
-  <button
-    onClick={onShowTables}
-    className="inline-flex h-10 items-center gap-2 rounded-xl border border-border bg-background px-3 font-mono text-sm transition hover:border-primary hover:text-primary"
-    title="Show tables in your SQL sandbox"
-  >
-    <ExternalLink className="h-4 w-4" />
-    <span className="hidden sm:inline">Tables</span>
-  </button>
-)}
+            <button
+              onClick={onShowTables}
+              className="inline-flex h-10 items-center gap-2 rounded-xl border border-border bg-background px-3 font-mono text-sm transition hover:border-primary hover:text-primary"
+              title="Show tables in your SQL sandbox"
+            >
+              <ExternalLink className="h-4 w-4" />
+              <span className="hidden sm:inline">Tables</span>
+            </button>
+          )}
 
           {showSqlResultsButton && onOpenSqlResults && (
             <button
@@ -139,6 +144,20 @@ export default function Topbar({
             >
               <ExternalLink className="h-4 w-4" />
               <span className="hidden sm:inline">Results</span>
+            </button>
+          )}
+
+          {showJavaGuiButton && onRunJavaGui && (
+            <button
+              onClick={onRunJavaGui}
+              disabled={isRunning}
+              className="inline-flex h-10 items-center gap-2 rounded-xl border border-primary/30 bg-primary/10 px-3 font-mono text-sm font-semibold text-primary transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
+              title="Run Java Swing/AWT GUI in sandbox preview"
+            >
+              <MonitorSmartphone className="h-4 w-4" />
+              <span className="hidden sm:inline">
+                {isRunning ? "Running GUI..." : "Run GUI"}
+              </span>
             </button>
           )}
 
@@ -158,7 +177,11 @@ export default function Topbar({
             onClick={onRun}
             disabled={isRunning || disableRun}
             className="inline-flex h-10 items-center gap-2 rounded-xl bg-primary px-4 font-mono text-sm font-semibold text-primary-foreground shadow-lg shadow-primary/20 transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
-            title={disableRun ? "This file type uses Preview instead of Run" : "Run code"}
+            title={
+              disableRun
+                ? "This file type uses Preview instead of Run"
+                : "Run code"
+            }
           >
             <Play className="h-4 w-4" />
             {isRunning ? "Running..." : "Run"}

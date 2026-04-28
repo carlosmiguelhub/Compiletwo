@@ -58,11 +58,9 @@ const ClassroomsSection = () => {
         <div className="mb-12">
           <p className="font-mono text-sm text-primary mb-2">// classrooms</p>
           <h2 className="text-3xl md:text-4xl font-bold font-mono text-foreground">
-            Join a <span className="text-primary">classroom</span>
+            Future <span className="text-primary">Features Mga bows</span>
           </h2>
-          <p className="text-muted-foreground mt-3 max-w-lg">
-            Live coding environments with real-time collaboration, mentorship, and instant feedback.
-          </p>
+         
         </div>
 
         <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-4">
