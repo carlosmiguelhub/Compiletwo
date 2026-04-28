@@ -11,6 +11,12 @@ import { runCode } from "../lib/judge0Service";
 import { loadWorkspace, saveWorkspace } from "../lib/workspaceService";
 import { runSql } from "../lib/sqlRunner";
 import { saveCompilerLog } from "../lib/compilerLogService";
+import {
+  defaultAdminSettings,
+  subscribeAdminSettings,
+  type AdminSettingsData,
+  type CompilerFeatureId,
+} from "../lib/adminSettingsService";
 
 export type CompilerLanguage =
   | "javascript"
@@ -577,8 +583,11 @@ export default function CompilerWorkspace() {
   const [terminalHeight, setTerminalHeight] = useState(220);
   const [explorerCollapsed, setExplorerCollapsed] = useState(false);
   const [sidebarPhotoURL, setSidebarPhotoURL] = useState<string | null>(null);
-  const [isRunning, setIsRunning] = useState(false);
-  const [hasSqlResult, setHasSqlResult] = useState(false);
+const [isRunning, setIsRunning] = useState(false);
+const [hasSqlResult, setHasSqlResult] = useState(false);
+
+const [adminSettings, setAdminSettings] =
+  useState<AdminSettingsData>(defaultAdminSettings);
 
   /**
    * SQL result viewer state.
@@ -663,6 +672,45 @@ export default function CompilerWorkspace() {
   const appendLog = (message: string) => {
     setOutput((prev) => [...prev, message]);
   };
+
+  /**
+ * Admin settings listener:
+ * Keeps compiler behavior synced with Firestore admin settings.
+ */
+useEffect(() => {
+  const unsubscribe = subscribeAdminSettings((settingsData) => {
+    setAdminSettings(settingsData);
+  });
+
+  return () => unsubscribe();
+}, []);
+
+/**
+ * isFeatureEnabled
+ *
+ * Purpose:
+ * Checks if a compiler feature is enabled by the admin.
+ */
+const isFeatureEnabled = (featureId: CompilerFeatureId) => {
+  return adminSettings.compilerFeatures.some(
+    (feature) => feature.id === featureId && feature.enabled
+  );
+};
+
+/**
+ * blockByAdminSettings
+ *
+ * Purpose:
+ * Shows a terminal/problem message when an admin setting blocks a feature.
+ */
+const blockByAdminSettings = (message: string) => {
+  setProblems([message]);
+  setBottomTab("problems");
+  setOutput((prev) => [
+    ...prev,
+    `[${new Date().toLocaleTimeString()}] ${message}`,
+  ]);
+};
 
   /**
    * Stops the currently tracked Java GUI session.
@@ -1055,95 +1103,117 @@ export default function CompilerWorkspace() {
 
   const sqlColumns = sqlRows.length > 0 ? Object.keys(sqlRows[0]) : [];
 
-  const handleShowTables = async () => {
-    if (!currentUser?.uid) {
-      setProblems(["You must be logged in to view SQL tables."]);
-      setBottomTab("problems");
-      return;
-    }
+const handleShowTables = async () => {
+  if (!currentUser?.uid) {
+    setProblems(["You must be logged in to view SQL tables."]);
+    setBottomTab("problems");
+    return;
+  }
 
-    try {
-      setIsRunning(true);
-      setBottomTab("output");
+  if (adminSettings.maintenanceMode) {
+    blockByAdminSettings("Compilo is currently in maintenance mode.");
+    return;
+  }
 
-      setOutput((prev) => [
-        ...prev,
-        `[${new Date().toLocaleTimeString()}] Loading tables from your SQL sandbox...`,
-      ]);
+  if (!isFeatureEnabled("sql")) {
+    blockByAdminSettings("SQL Sandbox is currently disabled by the administrator.");
+    return;
+  }
 
-      const result = await runSql("SHOW TABLES", currentUser.uid);
+  try {
+    setIsRunning(true);
+    setBottomTab("output");
 
-      setSqlRows(Array.isArray(result) ? result : []);
-      setSqlMetaMessage(
-        Array.isArray(result)
-          ? `Found ${result.length} table(s) in your sandbox.`
-          : "Tables loaded successfully."
-      );
-      setHasSqlResult(true);
-      setSqlResultOpen(true);
-      setProblems(["No problems detected."]);
-    } catch (error) {
-      const message =
-        error instanceof Error ? error.message : "Failed to load tables.";
+    setOutput((prev) => [
+      ...prev,
+      `[${new Date().toLocaleTimeString()}] Loading tables from your SQL sandbox...`,
+    ]);
 
-      setProblems([message]);
-      setBottomTab("problems");
-    } finally {
-      setIsRunning(false);
-    }
-  };
+    const result = await runSql("SHOW TABLES", currentUser.uid);
+
+    setSqlRows(Array.isArray(result) ? result : []);
+    setSqlMetaMessage(
+      Array.isArray(result)
+        ? `Found ${result.length} table(s) in your sandbox.`
+        : "Tables loaded successfully."
+    );
+    setHasSqlResult(true);
+    setSqlResultOpen(true);
+    setProblems(["No problems detected."]);
+  } catch (error) {
+    const message =
+      error instanceof Error ? error.message : "Failed to load tables.";
+
+    setProblems([message]);
+    setBottomTab("problems");
+  } finally {
+    setIsRunning(false);
+  }
+};
 
   /**
    * Opens the active HTML file in a new browser tab.
    * This is used instead of rendering HTML inside the terminal panel.
    */
-  const handlePreviewHtml = () => {
-    if (!activeFile || activeFile.language !== "html") return;
+const handlePreviewHtml = () => {
+  if (!activeFile || activeFile.language !== "html") return;
 
-    const parentFolder = findParentFolderOfFile(projectTree, activeFile.id);
+  if (adminSettings.maintenanceMode) {
+    blockByAdminSettings("Compilo is currently in maintenance mode.");
+    return;
+  }
 
-    const siblingFiles =
-      parentFolder?.children.filter(
-        (child): child is ExplorerFile =>
-          child.type === "file" && child.id !== activeFile.id
-      ) ?? [];
-
-    const cssFiles = siblingFiles.filter(
-      (file) => file.language === "css" || file.name.toLowerCase().endsWith(".css")
+  if (!isFeatureEnabled("html-preview")) {
+    blockByAdminSettings(
+      "HTML Preview is currently disabled by the administrator."
     );
+    return;
+  }
 
-    const jsFiles = siblingFiles.filter(
-      (file) =>
-        file.language === "javascript" || file.name.toLowerCase().endsWith(".js")
-    );
+  const parentFolder = findParentFolderOfFile(projectTree, activeFile.id);
 
-    const previewHtml = buildPreviewDocument(
-      activeFile.content,
-      cssFiles.map((file) => file.content),
-      jsFiles.map((file) => file.content)
-    );
+  const siblingFiles =
+    parentFolder?.children.filter(
+      (child): child is ExplorerFile =>
+        child.type === "file" && child.id !== activeFile.id
+    ) ?? [];
 
-    const previewWindow = window.open("", "_blank");
+  const cssFiles = siblingFiles.filter(
+    (file) => file.language === "css" || file.name.toLowerCase().endsWith(".css")
+  );
 
-    if (!previewWindow) {
-      setProblems([
-        "Preview popup was blocked by the browser.",
-        "Allow popups for this site and try again.",
-      ]);
-      setBottomTab("problems");
-      return;
-    }
+  const jsFiles = siblingFiles.filter(
+    (file) =>
+      file.language === "javascript" || file.name.toLowerCase().endsWith(".js")
+  );
 
-    previewWindow.document.open();
-    previewWindow.document.write(previewHtml);
-    previewWindow.document.close();
+  const previewHtml = buildPreviewDocument(
+    activeFile.content,
+    cssFiles.map((file) => file.content),
+    jsFiles.map((file) => file.content)
+  );
 
-    setOutput((prev) => [
-      ...prev,
-      `[${new Date().toLocaleTimeString()}] Opened preview for ${activeFile.name}.`,
-      `[${new Date().toLocaleTimeString()}] Included ${cssFiles.length} CSS file(s) and ${jsFiles.length} JS file(s) from the same folder.`,
+  const previewWindow = window.open("", "_blank");
+
+  if (!previewWindow) {
+    setProblems([
+      "Preview popup was blocked by the browser.",
+      "Allow popups for this site and try again.",
     ]);
-  };
+    setBottomTab("problems");
+    return;
+  }
+
+  previewWindow.document.open();
+  previewWindow.document.write(previewHtml);
+  previewWindow.document.close();
+
+  setOutput((prev) => [
+    ...prev,
+    `[${new Date().toLocaleTimeString()}] Opened preview for ${activeFile.name}.`,
+    `[${new Date().toLocaleTimeString()}] Included ${cssFiles.length} CSS file(s) and ${jsFiles.length} JS file(s) from the same folder.`,
+  ]);
+};
 
   /**
    * Runs the active Java file through the Java GUI backend route.
@@ -1152,6 +1222,18 @@ export default function CompilerWorkspace() {
    * Regular Java console programs still use Judge0 below.
    */
 const handleRunJavaGui = async (file: ExplorerFile) => {
+  if (adminSettings.maintenanceMode) {
+    blockByAdminSettings("Compilo is currently in maintenance mode.");
+    return;
+  }
+
+  if (!isFeatureEnabled("java-gui")) {
+    blockByAdminSettings(
+      "Java GUI Preview is currently disabled by the administrator."
+    );
+    return;
+  }
+
   setBottomTab("output");
   setProblems([]);
   setIsRunning(true);
@@ -1186,10 +1268,6 @@ const handleRunJavaGui = async (file: ExplorerFile) => {
       throw new Error(data.error || "Failed to run Java GUI.");
     }
 
-    /**
-     * Put the 3 lines HERE.
-     * This locks the frontend to the known working preview endpoint.
-     */
     setJavaGuiPreviewUrl(data.previewUrl);
     setJavaGuiContainerName(data.containerName);
     setBottomTab("preview");
@@ -1203,12 +1281,10 @@ const handleRunJavaGui = async (file: ExplorerFile) => {
     ]);
 
     await saveCompilerLog({
-  language: file.language,
-  fileName: file.name,
-  status: "success",
-});
-
-
+      language: file.language,
+      fileName: file.name,
+      status: "success",
+    });
   } catch (error) {
     const message =
       error instanceof Error ? error.message : "Failed to run Java GUI.";
@@ -1222,12 +1298,13 @@ const handleRunJavaGui = async (file: ExplorerFile) => {
       ...prev,
       `[${new Date().toLocaleTimeString()}] Java GUI run failed for ${file.name}.`,
     ]);
+
     await saveCompilerLog({
-  language: file.language,
-  fileName: file.name,
-  status: "failed",
-  error: message,
-});
+      language: file.language,
+      fileName: file.name,
+      status: "failed",
+      error: message,
+    });
   } finally {
     setIsRunning(false);
   }
@@ -1241,155 +1318,168 @@ const handleRunJavaGui = async (file: ExplorerFile) => {
    * - SQL runs through your backend.
    * - Java Swing/AWT GUI runs through the Java GUI backend.
    */
-  const handleRun = async () => {
-    if (!activeFile || isRunning) return;
+const handleRun = async () => {
+  if (!activeFile || isRunning) return;
 
-    /**
-     * HTML and CSS do not run through Judge0.
-     * Users should use the Preview button instead.
-     */
-    if (activeFile.language === "html" || activeFile.language === "css") {
-      setProblems([
-        `${formatLanguageLabel(activeFile.language)} does not run through Judge0.`,
-        "Use the Preview button from an HTML file to open it in a new tab.",
-      ]);
-      setBottomTab("problems");
-      setOutput((prev) => [
-        ...prev,
-        `[${new Date().toLocaleTimeString()}] Run blocked for ${activeFile.name}. Use Preview instead.`,
-      ]);
-      return;
-    }
+  if (adminSettings.maintenanceMode) {
+    blockByAdminSettings("Compilo is currently in maintenance mode.");
+    return;
+  }
 
-    /**
-     * Java GUI files run through your Java GUI backend route.
-     * Regular Java console files continue using Judge0.
-     */
-    if (activeFile.language === "java" && isJavaGuiSource(activeFile.content)) {
-      await handleRunJavaGui(activeFile);
-      return;
-    }
-
-    setBottomTab("output");
-    setIsRunning(true);
-    setProblems([]);
-
-    setOutput([
-      `[${new Date().toLocaleTimeString()}] Running ${activeFile.name} (${formatLanguageLabel(
-        activeFile.language
-      )})...`,
-      stdin.trim()
-        ? `[${new Date().toLocaleTimeString()}] Standard input detected.`
-        : `[${new Date().toLocaleTimeString()}] No standard input provided.`,
+  /**
+   * HTML and CSS do not run through Judge0.
+   * Users should use the Preview button instead.
+   */
+  if (activeFile.language === "html" || activeFile.language === "css") {
+    setProblems([
+      `${formatLanguageLabel(activeFile.language)} does not run through Judge0.`,
+      "Use the Preview button from an HTML file to open it in a new tab.",
     ]);
+    setBottomTab("problems");
+    setOutput((prev) => [
+      ...prev,
+      `[${new Date().toLocaleTimeString()}] Run blocked for ${activeFile.name}. Use Preview instead.`,
+    ]);
+    return;
+  }
 
-    try {
-      /**
-       * SQL runs through your backend, not Judge0.
-       */
-      if (activeFile.language === "sql") {
-        if (!currentUser?.uid) {
-          throw new Error("You must be logged in to use SQL sandbox.");
-        }
+  /**
+   * Java GUI files run through your Java GUI backend route.
+   * Regular Java console files continue using Judge0.
+   */
+  if (activeFile.language === "java" && isJavaGuiSource(activeFile.content)) {
+    await handleRunJavaGui(activeFile);
+    return;
+  }
 
-        const result = await runSql(activeFile.content, currentUser.uid);
+  setBottomTab("output");
+  setIsRunning(true);
+  setProblems([]);
 
-        setSqlRows(Array.isArray(result) ? result : []);
-        setSqlMetaMessage(
-          Array.isArray(result)
-            ? `Returned ${result.length} row(s).`
-            : "Query executed successfully."
-        );
-        setSqlResultOpen(false);
-        setHasSqlResult(true);
-        setProblems(["No problems detected."]);
-
-setOutput((prev) => [
-  ...prev,
-  `[${new Date().toLocaleTimeString()}] SQL executed successfully.`,
-  Array.isArray(result)
-    ? `[${new Date().toLocaleTimeString()}] Returned ${result.length} row(s).`
-    : `[${new Date().toLocaleTimeString()}] Query executed successfully.`,
-]);
-
-await saveCompilerLog({
-  language: activeFile.language,
-  fileName: activeFile.name,
-  status: "success",
-});
-
-return;
-      }
-
-      /**
-       * Clear old SQL table data when running non-SQL files
-       * so stale results do not remain available in the UI.
-       */
-      setSqlRows([]);
-      setSqlMetaMessage("");
-      setSqlResultOpen(false);
-      setHasSqlResult(false);
-
-      const result = await runCode({
-        sourceCode: activeFile.content,
-        language: activeFile.language as Exclude<
-          CompilerLanguage,
-          "html" | "css" | "sql"
-        >,
-        stdin,
-      });
-
-const nextProblems: string[] = [];
-
-if (result.compileOutput) nextProblems.push(result.compileOutput);
-if (result.stderr) nextProblems.push(result.stderr);
-if (result.message) nextProblems.push(result.message);
-
-const runFailed = nextProblems.length > 0;
-
-setProblems(runFailed ? nextProblems : ["No problems detected."]);
-
-setOutput((prev) => [
-  ...prev,
-  `[${new Date().toLocaleTimeString()}] Status: ${result.status}`,
-  result.stdout
-    ? result.stdout
-    : `[${new Date().toLocaleTimeString()}] Program finished with no stdout.`,
-]);
-
-await saveCompilerLog({
-  language: activeFile.language,
-  fileName: activeFile.name,
-  status: runFailed ? "failed" : "success",
-  error: runFailed ? nextProblems.join("\n") : "",
-});
-} catch (error) {
-  const message =
-    error instanceof Error ? error.message : "Unknown error occurred.";
-
-  setSqlRows([]);
-  setSqlMetaMessage("");
-  setSqlResultOpen(false);
-  setHasSqlResult(false);
-
-  setProblems([message]);
-  setBottomTab("problems");
-
-  setOutput((prev) => [
-    ...prev,
-    `[${new Date().toLocaleTimeString()}] Run failed for ${activeFile.name}.`,
+  setOutput([
+    `[${new Date().toLocaleTimeString()}] Running ${activeFile.name} (${formatLanguageLabel(
+      activeFile.language
+    )})...`,
+    stdin.trim()
+      ? `[${new Date().toLocaleTimeString()}] Standard input detected.`
+      : `[${new Date().toLocaleTimeString()}] No standard input provided.`,
   ]);
 
-  await saveCompilerLog({
-    language: activeFile.language,
-    fileName: activeFile.name,
-    status: "failed",
-    error: message,
-  });
-} finally {
-  setIsRunning(false);
-}
-  };
+  try {
+    /**
+     * SQL runs through your backend, not Judge0.
+     */
+    if (activeFile.language === "sql") {
+      if (!currentUser?.uid) {
+        throw new Error("You must be logged in to use SQL sandbox.");
+      }
+
+      if (!isFeatureEnabled("sql")) {
+        throw new Error("SQL Sandbox is currently disabled by the administrator.");
+      }
+
+      const result = await runSql(activeFile.content, currentUser.uid);
+
+      setSqlRows(Array.isArray(result) ? result : []);
+      setSqlMetaMessage(
+        Array.isArray(result)
+          ? `Returned ${result.length} row(s).`
+          : "Query executed successfully."
+      );
+      setSqlResultOpen(false);
+      setHasSqlResult(true);
+      setProblems(["No problems detected."]);
+
+      setOutput((prev) => [
+        ...prev,
+        `[${new Date().toLocaleTimeString()}] SQL executed successfully.`,
+        Array.isArray(result)
+          ? `[${new Date().toLocaleTimeString()}] Returned ${result.length} row(s).`
+          : `[${new Date().toLocaleTimeString()}] Query executed successfully.`,
+      ]);
+
+      await saveCompilerLog({
+        language: activeFile.language,
+        fileName: activeFile.name,
+        status: "success",
+      });
+
+      return;
+    }
+
+    /**
+     * Clear old SQL table data when running non-SQL files
+     * so stale results do not remain available in the UI.
+     */
+    setSqlRows([]);
+    setSqlMetaMessage("");
+    setSqlResultOpen(false);
+    setHasSqlResult(false);
+
+    if (!isFeatureEnabled("judge0")) {
+      throw new Error("Judge0 Compiler is currently disabled by the administrator.");
+    }
+
+    const result = await runCode({
+      sourceCode: activeFile.content,
+      language: activeFile.language as Exclude<
+        CompilerLanguage,
+        "html" | "css" | "sql"
+      >,
+      stdin,
+    });
+
+    const nextProblems: string[] = [];
+
+    if (result.compileOutput) nextProblems.push(result.compileOutput);
+    if (result.stderr) nextProblems.push(result.stderr);
+    if (result.message) nextProblems.push(result.message);
+
+    const runFailed = nextProblems.length > 0;
+
+    setProblems(runFailed ? nextProblems : ["No problems detected."]);
+
+    setOutput((prev) => [
+      ...prev,
+      `[${new Date().toLocaleTimeString()}] Status: ${result.status}`,
+      result.stdout
+        ? result.stdout
+        : `[${new Date().toLocaleTimeString()}] Program finished with no stdout.`,
+    ]);
+
+    await saveCompilerLog({
+      language: activeFile.language,
+      fileName: activeFile.name,
+      status: runFailed ? "failed" : "success",
+      error: runFailed ? nextProblems.join("\n") : "",
+    });
+  } catch (error) {
+    const message =
+      error instanceof Error ? error.message : "Unknown error occurred.";
+
+    setSqlRows([]);
+    setSqlMetaMessage("");
+    setSqlResultOpen(false);
+    setHasSqlResult(false);
+
+    setProblems([message]);
+    setBottomTab("problems");
+
+    setOutput((prev) => [
+      ...prev,
+      `[${new Date().toLocaleTimeString()}] Run failed for ${activeFile.name}.`,
+    ]);
+
+    await saveCompilerLog({
+      language: activeFile.language,
+      fileName: activeFile.name,
+      status: "failed",
+      error: message,
+    });
+  } finally {
+    setIsRunning(false);
+  }
+};
 
   /**
    * Handles confirmation for create / rename / delete dialogs.
@@ -1571,41 +1661,71 @@ await saveCompilerLog({
     );
   }
 
-  return (
-    <>
-      <div className="flex h-screen w-full overflow-hidden bg-background text-foreground">
-        <FileExplorer
-          tree={projectTree}
-          selectedFolderId={selectedFolderId}
-          activeFileId={activeFileId}
-          mobileOpen={mobileExplorerOpen}
-          collapsed={explorerCollapsed}
-          onCloseMobile={() => setMobileExplorerOpen(false)}
-          onToggleCollapse={() => setExplorerCollapsed((prev) => !prev)}
-          onSelectFolder={setSelectedFolderId}
-          onOpenFile={handleOpenFile}
-          onCreateFolder={openCreateFolderDialog}
-          onCreateFile={openCreateFileDialog}
-          onRenameNode={openRenameDialog}
-          onDeleteNode={openDeleteDialog}
-          onProfileClick={() => navigate("/profile")}
-          userPhotoURL={sidebarPhotoURL}
-        />
+return (
+  <>
+    {adminSettings.maintenanceMode && (
+      <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/80 px-4 backdrop-blur-sm">
+        <div className="w-full max-w-lg rounded-3xl border border-red-500/30 bg-card p-8 text-center shadow-2xl shadow-red-500/20">
+          <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-2xl bg-red-500/10 text-red-500">
+            <span className="text-3xl">⚠️</span>
+          </div>
+
+          <p className="mt-6 font-mono text-xs font-bold uppercase tracking-[0.3em] text-red-400">
+            Maintenance Mode
+          </p>
+
+          <h2 className="mt-3 font-mono text-2xl font-bold text-foreground">
+            Compilo is temporarily unavailable
+          </h2>
+
+          <p className="mt-4 text-sm leading-6 text-muted-foreground">
+            The administrator has temporarily disabled compiler access for
+            maintenance. Please try again later.
+          </p>
+
+          <div className="mt-6 rounded-2xl border border-border bg-background/70 px-4 py-3">
+            <p className="font-mono text-xs text-muted-foreground">
+              Your files are safe. Workspace autosave remains preserved in
+              Firestore.
+            </p>
+          </div>
+
+          <button
+            onClick={() => navigate("/profile")}
+            className="mt-6 rounded-xl border border-border bg-background px-5 py-3 font-mono text-sm font-semibold text-foreground transition hover:border-primary hover:text-primary"
+          >
+            Go to Profile
+          </button>
+        </div>
+      </div>
+    )}
+
+    <div className="flex h-screen w-full overflow-hidden bg-background text-foreground">
 
         <div className="flex min-w-0 flex-1 flex-col">
                       <Topbar
               isRunning={isRunning}
-              showPreviewButton={activeFile?.language === "html"}
-              showSqlResultsButton={showSqlResultsButton}
-              showShowTablesButton={showShowTablesButton}
-              showJavaGuiButton={
-                activeFile?.language === "java" &&
-                activeFile?.type === "file" &&
-                isJavaGuiSource(activeFile.content)
-              }
+              showPreviewButton={
+                activeFile?.language === "html" &&
+                !adminSettings.maintenanceMode &&
+                isFeatureEnabled("html-preview")
+              }showSqlResultsButton={showSqlResultsButton}
+                showShowTablesButton={
+                  showShowTablesButton &&
+                  !adminSettings.maintenanceMode &&
+                  isFeatureEnabled("sql")
+                }              showJavaGuiButton={
+                  activeFile?.language === "java" &&
+                  activeFile?.type === "file" &&
+                  isJavaGuiSource(activeFile.content) &&
+                  !adminSettings.maintenanceMode &&
+                  isFeatureEnabled("java-gui")
+                }
               disableRun={
-                activeFile?.language === "html" || activeFile?.language === "css"
-              }
+              adminSettings.maintenanceMode ||
+              activeFile?.language === "html" ||
+              activeFile?.language === "css"
+            }
               onSave={handleSave}
               onRun={handleRun}
               onRunJavaGui={() => {

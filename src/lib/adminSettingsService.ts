@@ -78,26 +78,33 @@ const adminSettingsRef = doc(db, "adminSettings", "main");
 export function subscribeAdminSettings(
   callback: (settings: AdminSettingsData) => void
 ) {
-  return onSnapshot(adminSettingsRef, async (snapshot) => {
-    if (!snapshot.exists()) {
-      await setDoc(adminSettingsRef, {
+  return onSnapshot(
+    adminSettingsRef,
+    async (snapshot) => {
+      if (!snapshot.exists()) {
+        await setDoc(adminSettingsRef, {
+          ...defaultAdminSettings,
+          updatedAt: serverTimestamp(),
+        });
+
+        callback(defaultAdminSettings);
+        return;
+      }
+
+      const data = snapshot.data() as Partial<AdminSettingsData>;
+
+      callback({
         ...defaultAdminSettings,
-        updatedAt: serverTimestamp(),
+        ...data,
+        compilerFeatures:
+          data.compilerFeatures || defaultAdminSettings.compilerFeatures,
       });
-
+    },
+    (error) => {
+      console.error("Failed to subscribe to admin settings:", error);
       callback(defaultAdminSettings);
-      return;
     }
-
-    const data = snapshot.data() as Partial<AdminSettingsData>;
-
-    callback({
-      ...defaultAdminSettings,
-      ...data,
-      compilerFeatures:
-        data.compilerFeatures || defaultAdminSettings.compilerFeatures,
-    });
-  });
+  );
 }
 
 /**
