@@ -1,11 +1,12 @@
 import {
-  doc,
-  setDoc,
-  getDoc,
   collection,
+  doc,
+  getDoc,
   getDocs,
-  updateDoc,
+  onSnapshot,
   serverTimestamp,
+  setDoc,
+  updateDoc,
 } from "firebase/firestore";
 import { db } from "../firebase/config";
 import type { AppUser } from "../types/user";
@@ -27,14 +28,15 @@ export const createUserProfile = async (
 ) => {
   const userRef = doc(db, "users", uid);
 
-  await setDoc(userRef, {
-    uid,
-    email,
-    displayName,
-    role: "user", // Every new account starts as a normal user
-    emailVerified: false,
-    createdAt: serverTimestamp(),
-  });
+await setDoc(userRef, {
+  uid,
+  email,
+  displayName,
+  role: "user",
+  status: "active",
+  emailVerified: false,
+  createdAt: serverTimestamp(),
+});
 };
 
 /**
@@ -51,7 +53,10 @@ export const getUserProfile = async (uid: string): Promise<AppUser | null> => {
     return null;
   }
 
-  return snapshot.data() as AppUser;
+  return {
+    ...(snapshot.data() as AppUser),
+    uid: snapshot.id,
+  };
 };
 
 /**
@@ -64,7 +69,10 @@ export const getAllUsers = async (): Promise<AppUser[]> => {
   const usersRef = collection(db, "users");
   const snapshot = await getDocs(usersRef);
 
-  return snapshot.docs.map((doc) => doc.data() as AppUser);
+  return snapshot.docs.map((docSnap) => ({
+    ...(docSnap.data() as AppUser),
+    uid: docSnap.id,
+  }));
 };
 
 /**
@@ -77,12 +85,33 @@ export const getAllUsers = async (): Promise<AppUser[]> => {
  * Firestore security rules must restrict who is allowed
  * to call this successfully.
  */
+
+/**
+ * updateUserStatus
+ *
+ * Purpose:
+ * Enable or disable a user account from the admin panel.
+ */
+export const updateUserStatus = async (
+  uid: string,
+  status: "active" | "disabled"
+) => {
+  const userRef = doc(db, "users", uid);
+
+  await updateDoc(userRef, {
+    status,
+  });
+};
+
 export const updateUserRole = async (
   uid: string,
   role: "user" | "admin"
 ) => {
   const userRef = doc(db, "users", uid);
-  await updateDoc(userRef, { role });
+
+  await updateDoc(userRef, {
+    role,
+  });
 };
 
 /**
@@ -96,5 +125,31 @@ export const updateEmailVerifiedStatus = async (
   emailVerified: boolean
 ) => {
   const userRef = doc(db, "users", uid);
-  await updateDoc(userRef, { emailVerified });
+
+  await updateDoc(userRef, {
+    emailVerified,
+  });
 };
+
+/**
+ * subscribeAllUsers
+ *
+ * Purpose:
+ * Realtime listener for all users.
+ * Used by admin pages so user counts and tables update automatically.
+ *
+ * Returns:
+ * The unsubscribe function from Firestore.
+ */
+export function subscribeAllUsers(callback: (users: AppUser[]) => void) {
+  const usersRef = collection(db, "users");
+
+  return onSnapshot(usersRef, (snapshot) => {
+    const users = snapshot.docs.map((docSnap) => ({
+      ...(docSnap.data() as AppUser),
+      uid: docSnap.id,
+    }));
+
+    callback(users);
+  });
+}

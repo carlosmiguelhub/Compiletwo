@@ -10,6 +10,7 @@ import { auth } from "../firebase/config";
 import { runCode } from "../lib/judge0Service";
 import { loadWorkspace, saveWorkspace } from "../lib/workspaceService";
 import { runSql } from "../lib/sqlRunner";
+import { saveCompilerLog } from "../lib/compilerLogService";
 
 export type CompilerLanguage =
   | "javascript"
@@ -1200,6 +1201,14 @@ const handleRunJavaGui = async (file: ExplorerFile) => {
       `[${new Date().toLocaleTimeString()}] Java GUI container started successfully.`,
       `[${new Date().toLocaleTimeString()}] Preview is ready in the Preview tab.`,
     ]);
+
+    await saveCompilerLog({
+  language: file.language,
+  fileName: file.name,
+  status: "success",
+});
+
+
   } catch (error) {
     const message =
       error instanceof Error ? error.message : "Failed to run Java GUI.";
@@ -1213,6 +1222,12 @@ const handleRunJavaGui = async (file: ExplorerFile) => {
       ...prev,
       `[${new Date().toLocaleTimeString()}] Java GUI run failed for ${file.name}.`,
     ]);
+    await saveCompilerLog({
+  language: file.language,
+  fileName: file.name,
+  status: "failed",
+  error: message,
+});
   } finally {
     setIsRunning(false);
   }
@@ -1289,15 +1304,21 @@ const handleRunJavaGui = async (file: ExplorerFile) => {
         setHasSqlResult(true);
         setProblems(["No problems detected."]);
 
-        setOutput((prev) => [
-          ...prev,
-          `[${new Date().toLocaleTimeString()}] SQL executed successfully.`,
-          Array.isArray(result)
-            ? `[${new Date().toLocaleTimeString()}] Returned ${result.length} row(s).`
-            : `[${new Date().toLocaleTimeString()}] Query executed successfully.`,
-        ]);
+setOutput((prev) => [
+  ...prev,
+  `[${new Date().toLocaleTimeString()}] SQL executed successfully.`,
+  Array.isArray(result)
+    ? `[${new Date().toLocaleTimeString()}] Returned ${result.length} row(s).`
+    : `[${new Date().toLocaleTimeString()}] Query executed successfully.`,
+]);
 
-        return;
+await saveCompilerLog({
+  language: activeFile.language,
+  fileName: activeFile.name,
+  status: "success",
+});
+
+return;
       }
 
       /**
@@ -1318,42 +1339,56 @@ const handleRunJavaGui = async (file: ExplorerFile) => {
         stdin,
       });
 
-      const nextProblems: string[] = [];
+const nextProblems: string[] = [];
 
-      if (result.compileOutput) nextProblems.push(result.compileOutput);
-      if (result.stderr) nextProblems.push(result.stderr);
-      if (result.message) nextProblems.push(result.message);
+if (result.compileOutput) nextProblems.push(result.compileOutput);
+if (result.stderr) nextProblems.push(result.stderr);
+if (result.message) nextProblems.push(result.message);
 
-      setProblems(
-        nextProblems.length > 0 ? nextProblems : ["No problems detected."]
-      );
+const runFailed = nextProblems.length > 0;
 
-      setOutput((prev) => [
-        ...prev,
-        `[${new Date().toLocaleTimeString()}] Status: ${result.status}`,
-        result.stdout
-          ? result.stdout
-          : `[${new Date().toLocaleTimeString()}] Program finished with no stdout.`,
-      ]);
-    } catch (error) {
-      const message =
-        error instanceof Error ? error.message : "Unknown error occurred.";
+setProblems(runFailed ? nextProblems : ["No problems detected."]);
 
-      setSqlRows([]);
-      setSqlMetaMessage("");
-      setSqlResultOpen(false);
-      setHasSqlResult(false);
+setOutput((prev) => [
+  ...prev,
+  `[${new Date().toLocaleTimeString()}] Status: ${result.status}`,
+  result.stdout
+    ? result.stdout
+    : `[${new Date().toLocaleTimeString()}] Program finished with no stdout.`,
+]);
 
-      setProblems([message]);
-      setBottomTab("problems");
+await saveCompilerLog({
+  language: activeFile.language,
+  fileName: activeFile.name,
+  status: runFailed ? "failed" : "success",
+  error: runFailed ? nextProblems.join("\n") : "",
+});
+} catch (error) {
+  const message =
+    error instanceof Error ? error.message : "Unknown error occurred.";
 
-      setOutput((prev) => [
-        ...prev,
-        `[${new Date().toLocaleTimeString()}] Run failed for ${activeFile.name}.`,
-      ]);
-    } finally {
-      setIsRunning(false);
-    }
+  setSqlRows([]);
+  setSqlMetaMessage("");
+  setSqlResultOpen(false);
+  setHasSqlResult(false);
+
+  setProblems([message]);
+  setBottomTab("problems");
+
+  setOutput((prev) => [
+    ...prev,
+    `[${new Date().toLocaleTimeString()}] Run failed for ${activeFile.name}.`,
+  ]);
+
+  await saveCompilerLog({
+    language: activeFile.language,
+    fileName: activeFile.name,
+    status: "failed",
+    error: message,
+  });
+} finally {
+  setIsRunning(false);
+}
   };
 
   /**

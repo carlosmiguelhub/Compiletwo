@@ -7,8 +7,9 @@ import ProtectedRoute from "./components/ProtectedRoute";
 import AdminRoute from "./components/AdminRoute";
 import AdminUsers from "./pages/AdminUsers";
 import AdminDashboard from "./pages/AdminDashboard";
+import AdminAnalytics from "./pages/AdminAnalytics";
+import AdminSettings from "./pages/AdminSettings";
 import Profile from "./pages/Profile";
-
 
 export default function App() {
   return (
@@ -41,6 +42,24 @@ export default function App() {
         element={
           <AdminRoute>
             <AdminUsers />
+          </AdminRoute>
+        }
+      />
+
+      <Route
+        path="/admin/analytics"
+        element={
+          <AdminRoute>
+            <AdminAnalytics />
+          </AdminRoute>
+        }
+      />
+
+      <Route
+        path="/admin/settings"
+        element={
+          <AdminRoute>
+            <AdminSettings />
           </AdminRoute>
         }
       />
