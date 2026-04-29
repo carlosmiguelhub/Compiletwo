@@ -263,14 +263,14 @@ export default function Register() {
               <form onSubmit={handleSubmit} className="space-y-5">
                 <div>
                   <label className="mb-2 block font-mono text-sm text-gray-300">
-                    Username
+                    Full Name
                   </label>
                   <input
                     name="username"
                     type="text"
                     value={form.username}
                     onChange={handleChange}
-                    placeholder="your_username"
+                    placeholder="Your Full Name"
                     className="w-full rounded-xl border border-red-900/40 bg-[#16090b] px-4 py-3 text-white outline-none transition placeholder:text-gray-500 focus:border-pink-500 focus:shadow-[0_0_0_3px_rgba(255,45,85,0.12)]"
                   />
                 </div>

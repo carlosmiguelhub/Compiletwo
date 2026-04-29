@@ -1702,43 +1702,63 @@ return (
 
     <div className="flex h-screen w-full overflow-hidden bg-background text-foreground">
 
+      <FileExplorer
+  tree={projectTree}
+  selectedFolderId={selectedFolderId}
+  activeFileId={activeFileId}
+  mobileOpen={mobileExplorerOpen}
+  collapsed={explorerCollapsed}
+  onCloseMobile={() => setMobileExplorerOpen(false)}
+  onToggleCollapse={() => setExplorerCollapsed((prev) => !prev)}
+  onSelectFolder={setSelectedFolderId}
+  onOpenFile={handleOpenFile}
+  onCreateFolder={openCreateFolderDialog}
+  onCreateFile={openCreateFileDialog}
+  onRenameNode={openRenameDialog}
+  onDeleteNode={openDeleteDialog}
+  onProfileClick={() => navigate("/profile")}
+  userPhotoURL={sidebarPhotoURL}
+/>
+
         <div className="flex min-w-0 flex-1 flex-col">
-                      <Topbar
-              isRunning={isRunning}
-              showPreviewButton={
-                activeFile?.language === "html" &&
-                !adminSettings.maintenanceMode &&
-                isFeatureEnabled("html-preview")
-              }showSqlResultsButton={showSqlResultsButton}
-                showShowTablesButton={
-                  showShowTablesButton &&
-                  !adminSettings.maintenanceMode &&
-                  isFeatureEnabled("sql")
-                }              showJavaGuiButton={
-                  activeFile?.language === "java" &&
-                  activeFile?.type === "file" &&
-                  isJavaGuiSource(activeFile.content) &&
-                  !adminSettings.maintenanceMode &&
-                  isFeatureEnabled("java-gui")
-                }
-              disableRun={
-              adminSettings.maintenanceMode ||
-              activeFile?.language === "html" ||
-              activeFile?.language === "css"
-            }
-              onSave={handleSave}
-              onRun={handleRun}
-              onRunJavaGui={() => {
-                if (activeFile && activeFile.language === "java") {
-                  void handleRunJavaGui(activeFile);
-                }
-              }}
-              onPreviewHtml={handlePreviewHtml}
-              onOpenSqlResults={() => setSqlResultOpen(true)}
-              onShowTables={handleShowTables}
-              onDownload={handleDownloadFile}
-              onToggleExplorer={() => setMobileExplorerOpen(true)}
-            />
+<Topbar
+  isRunning={isRunning}
+  showPreviewButton={
+    activeFile?.language === "html" &&
+    !adminSettings.maintenanceMode &&
+    isFeatureEnabled("html-preview")
+  }
+  showSqlResultsButton={showSqlResultsButton}
+  showShowTablesButton={
+    showShowTablesButton &&
+    !adminSettings.maintenanceMode &&
+    isFeatureEnabled("sql")
+  }
+  showJavaGuiButton={
+    activeFile?.language === "java" &&
+    activeFile?.type === "file" &&
+    isJavaGuiSource(activeFile.content) &&
+    !adminSettings.maintenanceMode &&
+    isFeatureEnabled("java-gui")
+  }
+  disableRun={
+    adminSettings.maintenanceMode ||
+    activeFile?.language === "html" ||
+    activeFile?.language === "css"
+  }
+  onSave={handleSave}
+  onRun={handleRun}
+  onRunJavaGui={() => {
+    if (activeFile && activeFile.language === "java") {
+      void handleRunJavaGui(activeFile);
+    }
+  }}
+  onPreviewHtml={handlePreviewHtml}
+  onOpenSqlResults={() => setSqlResultOpen(true)}
+  onShowTables={handleShowTables}
+  onDownload={handleDownloadFile}
+  onToggleExplorer={() => setMobileExplorerOpen(true)}
+/>
 
           <EditorTabs
             files={allFiles.filter((file) => openFileIds.includes(file.id))}
